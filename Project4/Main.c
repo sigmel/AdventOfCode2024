@@ -74,40 +74,36 @@ void clearVector(struct Vector* vector)
 	memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
 }
 
-void search(char* textGrid, int searchIndex, int columnDirection, int rowDirection, const int numColumns, const int numRows, struct Vector* matchVector, int matchCount, int* total)
+void countMS(char* textGrid, int searchIndex, int columnDirection, int rowDirection, const int numColumns, const int numRows, int* numM, int* numS)
 {
-	if (textGrid[searchIndex] == matchVector->data[matchCount])
+	// check our bounds
+	if ((columnDirection < 0) && (searchIndex % numColumns == 0))
 	{
-		matchCount++;
-		if (matchCount == matchVector->count)
-		{
-			*total += 1;
-			return;
-		}
-		else
-		{
-			// check our bounds
-			if ((columnDirection < 0) && (searchIndex % numColumns == 0))
-			{
-				return;
-			}
-			else if ((columnDirection > 0) && ((searchIndex + 1) % numColumns == 0))
-			{
-				return;
-			}
+		return;
+	}
+	else if ((columnDirection > 0) && ((searchIndex + 1) % numColumns == 0))
+	{
+		return;
+	}
 
-			if ((rowDirection < 0) && (searchIndex - numColumns < 0))
-			{
-				return;
-			}
-			else if ((rowDirection > 0) && (searchIndex + numColumns >= numColumns * numRows))
-			{
-				return;
-			}
+	if ((rowDirection < 0) && (searchIndex - numColumns < 0))
+	{
+		return;
+	}
+	else if ((rowDirection > 0) && (searchIndex + numColumns >= numColumns * numRows))
+	{
+		return;
+	}
 
-			// now check for the next letter
-			search(textGrid, searchIndex + columnDirection + (rowDirection * numColumns), columnDirection, rowDirection, numColumns, numRows, matchVector, matchCount, total);
-		}
+	int index = searchIndex + columnDirection + (rowDirection * numColumns);
+	char value = textGrid[index];
+	if (value == 'M')
+	{
+		(*numM)--;
+	}
+	else if (value == 'S')
+	{
+		(*numS)--;
 	}
 }
 
@@ -116,8 +112,7 @@ void main()
 	struct Vector inputVector;
 	initVector(&inputVector);
 
-	FILE* filePointer = NULL;
-	filePointer = fopen("puzzle.txt", "r");
+	FILE* filePointer = fopen("puzzle.txt", "r");
 
 	// start by reading the whole file into memory
 	int value = 0;
@@ -142,29 +137,26 @@ void main()
 		memcpy(&textGrid[dstIndex], &inputVector.data[srcIndex], sizeof(char) * numColumns);
 	}
 
-	// set what we're looking for
-	struct Vector matchVector;
-	initVector(&matchVector);
-	addVector(&matchVector, 'X');
-	addVector(&matchVector, 'M');
-	addVector(&matchVector, 'A');
-	addVector(&matchVector, 'S');
-
-	// now search for it at each index (going with recursion since it's faster to write, though maybe slower in execution)
+	// basic algorithm is going to be to look for the center value, then check one diagonal and verify it has one 'S' and one 'M', then the other
 	int total = 0;
 	for (int searchIndex = 0; searchIndex < numColumns * numRows; searchIndex++)
 	{
-		if (textGrid[searchIndex] == matchVector.data[0])
+		if (textGrid[searchIndex] == 'A')
 		{
-			// this will technically check the value again, but keeps the code more contained
-			search(textGrid, searchIndex, -1, -1, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex,  0, -1, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex,  1, -1, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex, -1,  0, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex,  1,  0, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex, -1,  1, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex,  0,  1, numColumns, numRows, &matchVector, 0, &total);
-			search(textGrid, searchIndex,  1,  1, numColumns, numRows, &matchVector, 0, &total);
+			int numM = 2, numS = 2;
+			countMS(textGrid, searchIndex, -1, -1, numColumns, numRows, &numM, &numS);
+			countMS(textGrid, searchIndex,  1,  1, numColumns, numRows, &numM, &numS);
+
+			if (numM == 1 && numS == 1)
+			{
+				countMS(textGrid, searchIndex, -1,  1, numColumns, numRows, &numM, &numS);
+				countMS(textGrid, searchIndex,  1, -1, numColumns, numRows, &numM, &numS);
+
+				if (numM == 0 && numS == 0)
+				{
+					total++;
+				}
+			}
 		}
 	}
 
