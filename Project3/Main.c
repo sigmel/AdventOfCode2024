@@ -96,11 +96,14 @@ void main()
 	int sum = 0;
 
 	int value = 0;
+	int mulEnabled = 1;
 	do
 	{
 		// this is ugly but I don't care
 		value = fgetc(filePointer);
-		if (value == 'm')
+
+		// check mul's if enabled
+		if (mulEnabled && value == 'm')
 		{
 			value = fgetc(filePointer);
 			if (value == 'u')
@@ -122,6 +125,44 @@ void main()
 							{
 								int num2 = atoi(inputVector.data);
 								sum += num1 * num2;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// check for do/don't
+		if (value == 'd')
+		{
+			value = fgetc(filePointer);
+			if (value == 'o')
+			{
+				value = fgetc(filePointer);
+				if (value == '(')
+				{
+					value = fgetc(filePointer);
+					if (value == ')')
+					{
+						mulEnabled = 1;
+					}
+				}
+				else if (value == 'n')
+				{
+					value = fgetc(filePointer);
+					if (value == '\'')
+					{
+						value = fgetc(filePointer);
+						if (value == 't')
+						{
+							value = fgetc(filePointer);
+							if (value == '(')
+							{
+								value = fgetc(filePointer);
+								if (value == ')')
+								{
+									mulEnabled = 0;
+								}
 							}
 						}
 					}
