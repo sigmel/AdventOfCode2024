@@ -124,7 +124,9 @@ void main()
 		} while (input[advIndex] != 0);
 
 		// now validate them (if I cared about speed, then I could have made a map of vectors or something in C++)
-		int valid = 1; // assume valid until proven otherwise
+		int valid = 1;
+
+	startLoop: // kickin' it super old school
 		for (int numberIndex = 0; numberIndex < inputVector.count; numberIndex++)
 		{
 			int number = inputVector.data[numberIndex];
@@ -138,26 +140,18 @@ void main()
 					{
 						if (inputVector.data[checkIndex] == afterNumber)
 						{
-							// an after number appeared before, so not valid
+							// just going to swap these and start the checks again cause computers these days are fast
+							inputVector.data[checkIndex] = inputVector.data[numberIndex];
+							inputVector.data[numberIndex] = afterNumber;
 							valid = 0;
-							break;
+							goto startLoop;
 						}
 					}
 				}
-
-				if (!valid)
-				{
-					break;
-				}
-			}
-
-			if (!valid)
-			{
-				break;
 			}
 		}
 
-		if (valid)
+		if (!valid) // only sum invalid ones now
 		{
 			sum += inputVector.data[inputVector.count / 2];
 		}
