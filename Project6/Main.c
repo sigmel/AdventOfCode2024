@@ -98,83 +98,137 @@ void main()
 	int numRows = inputVector.count / (numColumns + 1); // add 1 since it'll include the newlines currently
 
 	// create and fill our "2D" array
-	char* textGrid = malloc(sizeof(char) * numColumns * numRows);
+	char* masterTextGrid = malloc(sizeof(char) * numColumns * numRows);
 	for (int srcIndex = 0, dstIndex = 0; srcIndex < inputVector.count; srcIndex += numColumns + 1, dstIndex += numColumns)
 	{
-		memcpy(&textGrid[dstIndex], &inputVector.data[srcIndex], sizeof(char) * numColumns);
+		memcpy(&masterTextGrid[dstIndex], &inputVector.data[srcIndex], sizeof(char) * numColumns);
 	}
 
 
 	// find our guard
-	int searchIndex = 0;
+	int masterSearchIndex = 0;
 	while (1)
 	{
-		if (textGrid[searchIndex] == '^')
+		if (masterTextGrid[masterSearchIndex] == '^')
 		{
 			break;
 		}
 
-		searchIndex++;
+		masterSearchIndex++;
 	}
 	
 	int sum = 0;
-	int columnDirection = 0, rowDirection = -1;
-	while (1)
+
+	// I'm not sure the best way to solve this, so going to brute force it again.
+	// We can determine if a guard is in a loop if they enter the same cell going the same direction,
+	// so we'll need to build a history then if they enter somewhere they have been before,
+	// check to see if they are going the same direction as before, and if so we know we're in an infinite loop.
+	struct Vector* history = malloc(sizeof(struct Vector) * numColumns * numRows);
+	char* textGrid = malloc(sizeof(char) * numColumns * numRows);
+	for (int historyIndex = 0; historyIndex < numColumns * numRows; historyIndex++)
 	{
-		// mark our visited location
-		if (textGrid[searchIndex] != 'X')
-		{
-			textGrid[searchIndex] = 'X';
-			sum++;
-		}
+		initVector(&history[historyIndex]);
+	}
 
-		// check to see if we are about to walk off grid
-		if ((columnDirection < 0) && (searchIndex % numColumns == 0))
+	for (int obstacleIndex = 0; obstacleIndex < numColumns * numRows; obstacleIndex++)
+	{
+		// make sure we're trying a valid spot
+		if (masterTextGrid[obstacleIndex] != '^' && masterTextGrid[obstacleIndex] != '#')
 		{
-			break;
-		}
-		else if ((columnDirection > 0) && ((searchIndex + 1) % numColumns == 0))
-		{
-			break;
-		}
+			// reset our map
+			memcpy(textGrid, masterTextGrid, sizeof(char) * numColumns * numRows);
 
-		if ((rowDirection < 0) && (searchIndex - numColumns < 0))
-		{
-			break;
-		}
-		else if ((rowDirection > 0) && (searchIndex + numColumns >= numColumns * numRows))
-		{
-			break;
-		}
-
-		// check to see if we are about to hit something
-		if (textGrid[searchIndex + rowDirection * numColumns + columnDirection] == '#')
-		{
-			if (columnDirection == 0 && rowDirection == -1)
+			// reset any existing history
+			for (int historyIndex = 0; historyIndex < numColumns * numRows; historyIndex++)
 			{
-				columnDirection = 1;
-				rowDirection = 0;
-			}
-			else if (columnDirection == 1 && rowDirection == 0)
-			{
-				columnDirection = 0;
-				rowDirection = 1;
-			}
-			else if (columnDirection == 0 && rowDirection == 1)
-			{
-				columnDirection = -1;
-				rowDirection = 0;
-			}
-			else if (columnDirection == -1 && rowDirection == 0)
-			{
-				columnDirection = 0;
-				rowDirection = -1;
+				clearVector(&history[historyIndex]);
 			}
 
-		}
+			// set our new obstacle
+			textGrid[obstacleIndex] = '#';
 
-		// move forward
-		searchIndex = searchIndex + rowDirection * numColumns + columnDirection;
+			int searchIndex = masterSearchIndex;
+
+			int columnDirection = 0, rowDirection = -1;
+			while (1)
+			{
+				int looped = 0;
+				// check if we have a history here
+				for (int historyIndex = 0; historyIndex < history[searchIndex].count; historyIndex += 2)
+				{
+					if (history[searchIndex].data[historyIndex] == columnDirection && history[searchIndex].data[historyIndex + 1] == rowDirection)
+					{
+						// we've hit a loop!
+						sum++;
+						looped = 1;
+						break;
+					}
+				}
+				if (looped)
+				{
+					break;
+				}
+
+				// mark our visited location
+				addVector(&history[searchIndex], columnDirection);
+				addVector(&history[searchIndex], rowDirection);
+
+				// check to see if we are about to walk off grid
+				if ((columnDirection < 0) && (searchIndex % numColumns == 0))
+				{
+					break;
+				}
+				else if ((columnDirection > 0) && ((searchIndex + 1) % numColumns == 0))
+				{
+					break;
+				}
+
+				if ((rowDirection < 0) && (searchIndex - numColumns < 0))
+				{
+					break;
+				}
+				else if ((rowDirection > 0) && (searchIndex + numColumns >= numColumns * numRows))
+				{
+					break;
+				}
+
+				// check to see if we are about to hit something
+				int passable = 0;
+				while (!passable) // need to keep checking to make sure we can actually move forward in this direction
+				{
+					if (textGrid[searchIndex + rowDirection * numColumns + columnDirection] == '#')
+					{
+						if (columnDirection == 0 && rowDirection == -1)
+						{
+							columnDirection = 1;
+							rowDirection = 0;
+						}
+						else if (columnDirection == 1 && rowDirection == 0)
+						{
+							columnDirection = 0;
+							rowDirection = 1;
+						}
+						else if (columnDirection == 0 && rowDirection == 1)
+						{
+							columnDirection = -1;
+							rowDirection = 0;
+						}
+						else if (columnDirection == -1 && rowDirection == 0)
+						{
+							columnDirection = 0;
+							rowDirection = -1;
+						}
+					}
+					else
+					{
+						passable = 1;
+					}
+				}
+
+				// move forward
+				searchIndex = searchIndex + rowDirection * numColumns + columnDirection;
+			}
+		}
 	}
 
 	printf("%d\n", sum);
