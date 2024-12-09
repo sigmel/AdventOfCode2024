@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <math.h>
 #include <assert.h>
 
 #define VECTOR_DATA long long
@@ -102,25 +103,39 @@ void main()
 			while (isspace(input[advIndex])) { advIndex++; }
 		} while (input[advIndex] != 0);
 
-		// algorithm is just to take an increasing number and treat it as a bitfield
-		// where 0 is add and 1 is multiply
-		// we'll keep trying until we find one that works or run out of digits
-		// input doesn't look like it exceeds 32 numbers, so should be easy to represent as an int
-		assert(equation.count < 32);
-		int numPossibilities = 1 << (equation.count - 1);
-		for (int bitfield = 0; bitfield < numPossibilities; bitfield++)
+		// we have three operators, so bitfield is out
+		// will just represent the values as separate bytes then,
+		// but the basic procedure is more or less the same
+		char* operators = malloc(sizeof(char) * (equation.count - 1));
+		memset(operators, 0, sizeof(char) * (equation.count - 1));
+		long long numPossibilities = (long long)pow(3, equation.count - 1);
+		for (long long bitfield = 0; bitfield < numPossibilities; bitfield++)
 		{
+			// set our operand values
+			long long opPossibility = bitfield;
+			for (int opIndex = 0; opIndex < equation.count - 1; opIndex++)
+			{
+				operators[opIndex] = opPossibility % 3;
+				opPossibility /= 3;
+			}
+
 			long long computedSum = equation.data[0];
 			for (int bitIndex = 0; bitIndex < equation.count - 1; bitIndex++)
 			{
-				int sign = (bitfield >> bitIndex) & 1;
-				if (sign)
+				int sign = operators[bitIndex];
+				if (sign == 0)
+				{
+					computedSum += equation.data[bitIndex + 1];
+				}
+				else if (sign == 1)
 				{
 					computedSum *= equation.data[bitIndex + 1];
 				}
-				else
+				else if (sign == 2)
 				{
-					computedSum += equation.data[bitIndex + 1];
+					char digitString[INPUT_SIZE];
+					sprintf(digitString, "%lld%lld", computedSum, equation.data[bitIndex + 1]);
+					computedSum = atoll(digitString);
 				}
 			}
 
@@ -130,7 +145,7 @@ void main()
 				break;
 			}
 		}
-
+		free(operators);
 		clearVector(&equation);
 	}
 
