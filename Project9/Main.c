@@ -138,29 +138,46 @@ void main()
 	}
 
 	// now compact using a begin and end pointer
-	size_t begin = 0;
 	size_t end = totalSize - 1;
-	while (begin < end)
+	int currentFileID = maxFileID - 1;
+	while (currentFileID > 0) // can't ever move file 0
 	{
-		if (disk[begin] == -1)
+		// find the size we need
+		size_t sizeNeeded = 0;
+		while (disk[end] != currentFileID) { end--; }
+		while (disk[end] == currentFileID && end >= 0) { sizeNeeded++; end--; }
+
+		// find a spot this could fit in
+		size_t begin = 0; // could save off where the first free space starts, but meh
+		while (begin < end)
 		{
-			disk[begin] = disk[end];
-			disk[end] = -1;
-			while (disk[end] == -1 && end > 0) { end--; }
+			size_t freeSpace = 0;
+			while (disk[begin] != -1) { begin++; }
+			size_t freeSpaceStart = begin;
+			while (disk[begin] == -1 && begin <= end) { begin++; freeSpace++; }
+			if (freeSpace >= sizeNeeded)
+			{
+				for (int copyIndex = 0; copyIndex < sizeNeeded; copyIndex++)
+				{
+					disk[freeSpaceStart + copyIndex] = currentFileID;
+					disk[end + 1 + copyIndex] = -1;
+				}
+				break;
+			}
 		}
-		begin++;
+
+		currentFileID--;
 	}
 
 	// now compute the checksum
 	long long checksum = 0;
 	cursor = 0;
-	while (1)
+	while (cursor < totalSize)
 	{
-		if (disk[cursor] == -1)
+		if (disk[cursor] > 0)
 		{
-			break;
+			checksum += cursor * disk[cursor];
 		}
-		checksum += cursor * disk[cursor];
 		cursor++;
 	}
 	printf("%lld\n", checksum);
