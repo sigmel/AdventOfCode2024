@@ -178,6 +178,10 @@ void main()
 				int c1 = antennaLocations[antennaIndex].data[antennaCompareIndex];
 				int r1 = antennaLocations[antennaIndex].data[antennaCompareIndex + 1];
 
+				// set the harmonics at the same location as the antennas
+				antinodeGrid[r0 * numRows + c0] = '#';
+				antinodeGrid[r1 * numRows + c1] = '#';
+
 				int dc = c1 - c0;
 				int dr = r1 - r0;
 
@@ -187,14 +191,18 @@ void main()
 				int ac1 = c1 + dc;
 				int ar1 = r1 + dr;
 
-				if (isValidLocation(ac0, ar0, numColumns, numRows))
+				while (isValidLocation(ac0, ar0, numColumns, numRows))
 				{
 					antinodeGrid[ar0 * numRows + ac0] = '#';
+					ac0 -= dc;
+					ar0 -= dr;
 				}
 
-				if (isValidLocation(ac1, ar1, numColumns, numRows))
+				while (isValidLocation(ac1, ar1, numColumns, numRows))
 				{
 					antinodeGrid[ar1 * numRows + ac1] = '#';
+					ac1 += dc;
+					ar1 += dr;
 				}
 			}
 		}
