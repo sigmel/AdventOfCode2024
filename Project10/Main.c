@@ -106,7 +106,6 @@ void walkTrail(VECTOR_DATA* textGrid, int searchIndex, int numColumns, int numRo
 		int nextSearchIndex = searchIndex - 1;
 		if (currentValue == 9)
 		{
-			if (!containsValueInVector(foundSummit, nextSearchIndex))
 			{
 				addVector(foundSummit, nextSearchIndex);
 			}
@@ -121,7 +120,6 @@ void walkTrail(VECTOR_DATA* textGrid, int searchIndex, int numColumns, int numRo
 		int nextSearchIndex = searchIndex + 1;
 		if (currentValue == 9)
 		{
-			if (!containsValueInVector(foundSummit, nextSearchIndex))
 			{
 				addVector(foundSummit, nextSearchIndex);
 			}
@@ -136,7 +134,6 @@ void walkTrail(VECTOR_DATA* textGrid, int searchIndex, int numColumns, int numRo
 		int nextSearchIndex = searchIndex - numColumns;
 		if (currentValue == 9)
 		{
-			if (!containsValueInVector(foundSummit, nextSearchIndex))
 			{
 				addVector(foundSummit, nextSearchIndex);
 			}
@@ -151,7 +148,6 @@ void walkTrail(VECTOR_DATA* textGrid, int searchIndex, int numColumns, int numRo
 		int nextSearchIndex = searchIndex + numColumns;
 		if (currentValue == 9)
 		{
-			if (!containsValueInVector(foundSummit, nextSearchIndex))
 			{
 				addVector(foundSummit, nextSearchIndex);
 			}
