@@ -92,8 +92,26 @@ void clearVector(struct Vector* vector)
 	memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
 }
 
+void addStone(struct Vector* vector, VECTOR_DATA value, VECTOR_DATA count)
+{
+	// find the stone (my kingdom for a hash map)
+	for (int vectorIndex = 0; vectorIndex < vector->count; vectorIndex += 2)
+	{
+		if (vector->data[vectorIndex] == value)
+		{
+			vector->data[vectorIndex + 1] += count;
+			return;
+		}
+	}
+
+	// not found, so add it
+	addVector(vector, value);
+	addVector(vector, count);
+}
+
 void main()
 {
+	// stone values will now be the number than the count
 	struct Vector stoneVector;
 	initVector(&stoneVector);
 
@@ -108,45 +126,54 @@ void main()
 	{
 		int value = atoi(&input[advIndex]);
 		addVector(&stoneVector, value);
+		addVector(&stoneVector, 1);
 
 		while (isdigit(input[advIndex])) { advIndex++; }
 		while (isspace(input[advIndex])) { advIndex++; }
 	}
 
-	for (int blinkIndex = 0; blinkIndex < 25; blinkIndex++)
+	// oh well, can't exactly brute force anymore. however, each number produces the same results, so we can group them to simplify
+	for (int blinkIndex = 0; blinkIndex < 75; blinkIndex++)
 	{
 		struct Vector blinkVector;
 		initVectorWithSize(&blinkVector, stoneVector.count * 2); // avoid some unnecessary copying from growing
 
-		for (int stoneIndex = 0; stoneIndex < stoneVector.count; stoneIndex++)
+		for (int stoneIndex = 0; stoneIndex < stoneVector.count; stoneIndex += 2)
 		{
 			if (stoneVector.data[stoneIndex] == 0)
 			{
-				addVector(&blinkVector, 1);
+				addStone(&blinkVector, 1, stoneVector.data[stoneIndex + 1]);
 			}
 			else
 			{
 				sprintf(input, "%lld", stoneVector.data[stoneIndex]);
-				int numDigits = strlen(input);
+				size_t numDigits = strlen(input);
 				if (numDigits % 2 == 0)
 				{
-					int newDigits = numDigits / 2;
-					long long stoneValue = atoll(&input[newDigits]);
+					size_t newDigits = numDigits / 2;
+					addStone(&blinkVector, atoll(&input[newDigits]), stoneVector.data[stoneIndex + 1]);
 					input[newDigits] = 0;
-					addVector(&blinkVector, atoll(input));
-					addVector(&blinkVector, stoneValue); // probably don't need to preserve the order, but just in case
+					addStone(&blinkVector, atoll(input), stoneVector.data[stoneIndex + 1]);
 				}
 				else
 				{
-					addVector(&blinkVector, stoneVector.data[stoneIndex] * 2024);
+					addStone(&blinkVector, stoneVector.data[stoneIndex] * 2024, stoneVector.data[stoneIndex + 1]);
 				}
 			}
 		}
 
 		// copy our blink vector over to our stone one
 		freeVector(&stoneVector);
-		copyVector(&stoneVector, &blinkVector);
+		stoneVector.count = blinkVector.count;
+		stoneVector.data = blinkVector.data;
+		stoneVector.size = blinkVector.size;
 	}
 
-	printf("%d\n", stoneVector.count);
+	// sum all our counts
+	long long sum = 0;
+	for (int vectorIndex = 1; vectorIndex < stoneVector.count; vectorIndex += 2)
+	{
+		sum += stoneVector.data[vectorIndex];
+	}
+	printf("%lld\n", sum);
 }
