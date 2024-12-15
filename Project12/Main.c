@@ -96,12 +96,24 @@ int isValidLocation(int x, int y, int numColumns, int numRows)
 	return 1;
 }
 
-void floodFill(const char* textGrid, char* floodGrid, char value, int searchIndex, int numColumns, int numRows, int* area, int* perimeter)
+struct Bounds
+{
+	int xMin;
+	int xMax;
+	int yMin;
+	int yMax;
+	char* plot; // need to have a copy of just this plot since our bounds can overlap other plots of the same type
+};
+
+void floodFill(const char* textGrid, char* floodGrid, char value, int searchIndex, int numColumns, int numRows, int* area, int* perimeter, struct Bounds* bounds)
 {
 	if (textGrid[searchIndex] == value && floodGrid[searchIndex] != value)
 	{
+		// set our value
 		floodGrid[searchIndex] = value;
+		bounds->plot[searchIndex] = value;
 
+		// compute area and perimeter
 		(*area)++;
 
 		int currentPerimeter = 4;
@@ -127,23 +139,167 @@ void floodFill(const char* textGrid, char* floodGrid, char value, int searchInde
 
 		(*perimeter) += currentPerimeter;
 
+		// compute our bounds
+		if (x < bounds->xMin) { bounds->xMin = x; }
+		if (x > bounds->xMax) { bounds->xMax = x; }
+		if (y < bounds->yMin) { bounds->yMin = y; }
+		if (y > bounds->yMax) { bounds->yMax = y; }
+
+		// continue to fill
 		if (isValidLocation(x - 1, y, numColumns, numRows))
 		{
-			floodFill(textGrid, floodGrid, value, searchIndex - 1, numColumns, numRows, area, perimeter);
+			floodFill(textGrid, floodGrid, value, searchIndex - 1, numColumns, numRows, area, perimeter, bounds);
 		}
 		if (isValidLocation(x + 1, y, numColumns, numRows))
 		{
-			floodFill(textGrid, floodGrid, value, searchIndex + 1, numColumns, numRows, area, perimeter);
+			floodFill(textGrid, floodGrid, value, searchIndex + 1, numColumns, numRows, area, perimeter, bounds);
 		}
 		if (isValidLocation(x, y - 1, numColumns, numRows))
 		{
-			floodFill(textGrid, floodGrid, value, searchIndex - numColumns, numColumns, numRows, area, perimeter);
+			floodFill(textGrid, floodGrid, value, searchIndex - numColumns, numColumns, numRows, area, perimeter, bounds);
 		}
 		if (isValidLocation(x, y + 1, numColumns, numRows))
 		{
-			floodFill(textGrid, floodGrid, value, searchIndex + numColumns, numColumns, numRows, area, perimeter);
+			floodFill(textGrid, floodGrid, value, searchIndex + numColumns, numColumns, numRows, area, perimeter, bounds);
 		}
 	}
+}
+
+int findSides(const struct Bounds* bounds, char value, int searchIndex, int numColumns, int numRows)
+{
+	int numSides = 0;
+
+	// find all horiztonal sides
+	for (int y = bounds->yMin; y <= bounds->yMax; y++)
+	{
+		int topSideStart = -1;
+		int bottomSideStart = -1;
+		for (int x = bounds->xMin; x <= bounds->xMax; x++)
+		{
+			if (bounds->plot[y * numColumns + x] == value)
+			{
+				// check to make sure that we are on a boundary
+				if (!isValidLocation(x, y - 1, numColumns, numRows) || bounds->plot[(y - 1) * numColumns + x] != value)
+				{
+					if (topSideStart == -1)
+					{
+						topSideStart = x;
+					}
+				}
+				else if (topSideStart >= 0)
+				{
+					numSides++;
+					topSideStart = -1;
+				}
+
+				if (!isValidLocation(x, y + 1, numColumns, numRows) || bounds->plot[(y + 1) * numColumns + x] != value)
+				{
+					if (bottomSideStart == -1)
+					{
+						bottomSideStart = x;
+					}
+				}
+				else if (bottomSideStart >= 0)
+				{
+					numSides++;
+					bottomSideStart = -1;
+				}
+			}
+			else
+			{
+				// if we are no longer in our plot, then end any sides we started
+				if (topSideStart >= 0)
+				{
+					numSides++;
+					topSideStart = -1;
+				}
+				if (bottomSideStart >= 0)
+				{
+					numSides++;
+					bottomSideStart = -1;
+				}
+			}
+		}
+
+		// done with this row, so finish any sides we started
+		if (topSideStart >= 0)
+		{
+			numSides++;
+			topSideStart = -1;
+		}
+		if (bottomSideStart >= 0)
+		{
+			numSides++;
+			bottomSideStart = -1;
+		}
+	}
+
+	// find all vertical sides
+	for (int x = bounds->xMin; x <= bounds->xMax; x++)
+	{
+		int leftSideStart = -1;
+		int rightSideStart = -1;
+		for (int y = bounds->yMin; y <= bounds->yMax; y++)
+		{
+			if (bounds->plot[y * numColumns + x] == value)
+			{
+				// check to make sure that we are on a boundary
+				if (!isValidLocation(x - 1, y, numColumns, numRows) || bounds->plot[y * numColumns + x - 1] != value)
+				{
+					if (leftSideStart == -1)
+					{
+						leftSideStart = y;
+					}
+				}
+				else if (leftSideStart >= 0)
+				{
+					numSides++;
+					leftSideStart = -1;
+				}
+
+				if (!isValidLocation(x + 1, y, numColumns, numRows) || bounds->plot[y * numColumns + x + 1] != value)
+				{
+					if (rightSideStart == -1)
+					{
+						rightSideStart = y;
+					}
+				}
+				else if (rightSideStart >= 0)
+				{
+					numSides++;
+					rightSideStart = -1;
+				}
+			}
+			else
+			{
+				// if we are no longer in our plot, then end any sides we started
+				if (leftSideStart >= 0)
+				{
+					numSides++;
+					leftSideStart = -1;
+				}
+				if (rightSideStart >= 0)
+				{
+					numSides++;
+					rightSideStart = -1;
+				}
+			}
+		}
+
+		// done with this row, so finish any sides we started
+		if (leftSideStart >= 0)
+		{
+			numSides++;
+			leftSideStart = -1;
+		}
+		if (rightSideStart >= 0)
+		{
+			numSides++;
+			rightSideStart = -1;
+		}
+	}
+
+	return numSides;
 }
 
 void main()
@@ -192,6 +348,9 @@ void main()
 	char* floodGrid = malloc(sizeof(char) * numColumns * numRows);
 	memset(floodGrid, '.', sizeof(char) * numColumns * numRows);
 
+	char* boundsPlot = malloc(sizeof(char) * numColumns * numRows);
+	memset(boundsPlot, '.', sizeof(char) * numColumns * numRows);
+
 	// this is a flood fill problem, so we'll need to spread out and find all the connecting areas of the same type
 	long long cost = 0;
 	for (int searchIndex = 0; searchIndex < numColumns * numRows; searchIndex++)
@@ -200,9 +359,20 @@ void main()
 		{
 			char plotType = textGrid[searchIndex];
 			int area = 0, perimeter = 0;
-			floodFill(textGrid, floodGrid, plotType, searchIndex, numColumns, numRows, &area, &perimeter);
 
-			cost += area * perimeter;
+			// figure out the inclusive bounds for our area while we are flood filling
+			struct Bounds bounds;
+			bounds.xMin = numColumns - 1;
+			bounds.xMax = 0;
+			bounds.yMin = numRows - 1;
+			bounds.yMax = 0;
+			bounds.plot = boundsPlot;
+
+			floodFill(textGrid, floodGrid, plotType, searchIndex, numColumns, numRows, &area, &perimeter, &bounds);
+			int numSides = findSides(&bounds, plotType, searchIndex, numColumns, numRows);
+			cost += area * numSides;
+
+			memset(boundsPlot, '.', sizeof(char) * numColumns * numRows);
 		}
 	}
 
