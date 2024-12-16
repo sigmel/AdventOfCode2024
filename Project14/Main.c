@@ -120,52 +120,135 @@ void main()
 	}
 	fclose(filePointer);
 
-	const int simulateTime = 100;
 	const int tileColumns = 101;
 	const int tileRows = 103;
 	const int quadrantWidth = tileColumns / 2;
 	const int quadrantHeight = tileRows / 2;
 
-	int quadrantCount[4];
-	memset(quadrantCount, 0, sizeof(quadrantCount));
+	// didn't quite understand what this one was asking for, so looking on reddit helped guide this solution
+	// basically, we want to find when a large number are in a single quadrant
+	// so we can compute all the possibilities and then print out the top couple to find it
+	// the "possibility number" is basically the value we calculated in part 1
+	// might not be the lowest, so we'll just print them out in increasing order (shouldn't be many, so we'll take a slow approach)
 
-	for (int robotIndex = 0; robotIndex < robotVector.count; robotIndex += 4)
+	struct Vector totals;
+	initVectorWithSize(&totals, tileColumns * tileRows);
+	for (int simulationIndex = 0; simulationIndex < tileColumns * tileRows; simulationIndex++)
 	{
-		long long x = robotVector.data[robotIndex];
-		long long y = robotVector.data[robotIndex + 1];
-		long long vX = robotVector.data[robotIndex + 2];
-		long long vY = robotVector.data[robotIndex + 3];
+		int quadrantCount[4];
+		memset(quadrantCount, 0, sizeof(quadrantCount));
 
-		x += vX * simulateTime;
-		x %= tileColumns;
-		if (x < 0) { x += tileColumns; }
-		y += vY * simulateTime;
-		y %= tileRows;
-		if (y < 0) { y += tileRows; }
+		for (int robotIndex = 0; robotIndex < robotVector.count; robotIndex += 4)
+		{
+			long long x = robotVector.data[robotIndex];
+			long long y = robotVector.data[robotIndex + 1];
+			long long vX = robotVector.data[robotIndex + 2];
+			long long vY = robotVector.data[robotIndex + 3];
 
-		robotVector.data[robotIndex] = x;
-		robotVector.data[robotIndex + 1] = y;
+			x += vX * simulationIndex;
+			x %= tileColumns;
+			if (x < 0) { x += tileColumns; }
+			y += vY * simulationIndex;
+			y %= tileRows;
+			if (y < 0) { y += tileRows; }
 
-		// compute the quadrant
-		// (could just count up everything that doesn't line on the boundary, but I want to verify my solutions are matching the test examples)
-		if (x < quadrantWidth && y < quadrantHeight)
-		{
-			quadrantCount[0]++;
+			// compute the quadrant
+			if (x < quadrantWidth && y < quadrantHeight)
+			{
+				quadrantCount[0]++;
+			}
+			else if (x < quadrantWidth && y > quadrantHeight)
+			{
+				quadrantCount[1]++;
+			}
+			else if (x > quadrantWidth && y < quadrantHeight)
+			{
+				quadrantCount[2]++;
+			}
+			else if (x > quadrantWidth && y > quadrantHeight)
+			{
+				quadrantCount[3]++;
+			}
 		}
-		else if (x < quadrantWidth && y > quadrantHeight)
-		{
-			quadrantCount[1]++;
-		}
-		else if (x > quadrantWidth && y < quadrantHeight)
-		{
-			quadrantCount[2]++;
-		}
-		else if (x > quadrantWidth && y > quadrantHeight)
-		{
-			quadrantCount[3]++;
-		}
+
+		int total = quadrantCount[0] * quadrantCount[1] * quadrantCount[2] * quadrantCount[3];
+		addVector(&totals, total);
 	}
 
-	int total = quadrantCount[0] * quadrantCount[1] * quadrantCount[2] * quadrantCount[3];
-	printf("%d\n", total);
+	char* grid = malloc(sizeof(char) * tileColumns * tileRows);
+
+	struct Vector triedValues;
+	initVector(&triedValues);
+
+	for (int attemptIndex = 0; attemptIndex < tileColumns * tileRows; attemptIndex++)
+	{
+		// find the lowest value (that hasn't been tried before)
+		long long simulateTime = 0;
+		long long lowestTotal = totals.data[0];
+		for (int searchIndex = 1; searchIndex < totals.count; searchIndex++)
+		{
+			if (totals.data[searchIndex] < lowestTotal)
+			{
+				if (!containsValueInVector(&triedValues, totals.data[searchIndex]))
+				{
+					simulateTime = searchIndex;
+					lowestTotal = totals.data[searchIndex];
+				}
+			}
+		}
+
+		// simulate to that step and record it
+		memset(grid, '.', sizeof(char) * tileColumns * tileRows);
+
+		int quadrantCount[4];
+		memset(quadrantCount, 0, sizeof(quadrantCount));
+		for (int robotIndex = 0; robotIndex < robotVector.count; robotIndex += 4)
+		{
+			long long x = robotVector.data[robotIndex];
+			long long y = robotVector.data[robotIndex + 1];
+			long long vX = robotVector.data[robotIndex + 2];
+			long long vY = robotVector.data[robotIndex + 3];
+
+			x += vX * simulateTime;
+			x %= tileColumns;
+			if (x < 0) { x += tileColumns; }
+			y += vY * simulateTime;
+			y %= tileRows;
+			if (y < 0) { y += tileRows; }
+
+			grid[y * tileColumns + x] = 'X';
+
+			// compute the quadrant
+			if (x < quadrantWidth && y < quadrantHeight)
+			{
+				quadrantCount[0]++;
+			}
+			else if (x < quadrantWidth && y > quadrantHeight)
+			{
+				quadrantCount[1]++;
+			}
+			else if (x > quadrantWidth && y < quadrantHeight)
+			{
+				quadrantCount[2]++;
+			}
+			else if (x > quadrantWidth && y > quadrantHeight)
+			{
+				quadrantCount[3]++;
+			}
+		}
+		int total = quadrantCount[0] * quadrantCount[1] * quadrantCount[2] * quadrantCount[3];
+		assert(total == lowestTotal);
+
+		printf("%lld %lld\n", simulateTime, lowestTotal);
+		for (int y = 0; y < tileRows; y++)
+		{
+			for (int x = 0; x < tileColumns; x++)
+			{
+				printf("%c", grid[y * tileColumns + x]);
+			}
+			printf("\n");
+		}
+
+		addVector(&triedValues, lowestTotal);
+	}
 }
