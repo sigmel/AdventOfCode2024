@@ -96,6 +96,101 @@ int isValidLocation(int x, int y, int numColumns, int numRows)
 	return 1;
 }
 
+void getBoxSides(const char* textGrid, int nextIndex, int* leftBox, int* rightBox)
+{
+	// find both sides of the box
+	if (textGrid[nextIndex] == '[')
+	{
+		*leftBox = nextIndex;
+	}
+	else
+	{
+		*leftBox = nextIndex - 1;
+	}
+	*rightBox = *leftBox + 1;
+}
+
+int canPushBox(const char* textGrid, int nextIndex, int dX, int dY, int numColumns)
+{
+	// check if we can push
+	int canPush = 0;
+	int pushIndex = nextIndex + (dY * numColumns) + dX;
+	if (textGrid[pushIndex] == '.')
+	{
+		canPush = 1;
+	}
+	else if (textGrid[pushIndex] == '#')
+	{
+	}
+	else if (textGrid[pushIndex] == '[' || textGrid[pushIndex] == ']')
+	{
+		int leftBox, rightBox;
+		getBoxSides(textGrid, pushIndex, &leftBox, &rightBox);
+
+		// check if we can push
+		// need to check both sides for up/down, but only the leading edge for left/right
+		int canPushLeft = 1;
+		int canPushRight = 1;
+		if (dY != 0)
+		{
+			canPushLeft = canPushBox(textGrid, leftBox, dX, dY, numColumns);
+			canPushRight = canPushBox(textGrid, rightBox, dX, dY, numColumns);
+		}
+		else if (dX < 0)
+		{
+			canPushLeft = canPushBox(textGrid, leftBox, dX, dY, numColumns);
+		}
+		else if (dX > 0)
+		{
+			canPushRight = canPushBox(textGrid, rightBox, dX, dY, numColumns);
+		}
+		if (canPushLeft && canPushRight)
+		{
+			canPush = 1;
+		}
+	}
+	return canPush;
+}
+
+void pushBox(char* textGrid, int pushIndex, int dX, int dY, int numColumns)
+{
+	int delta = dY * numColumns + dX;
+
+	// push any boxes
+	// need to handle up/down, which can push two, but left/right can only push one (and need to ignore itself)
+	int leftBox, rightBox;
+	getBoxSides(textGrid, pushIndex, &leftBox, &rightBox);
+	if (dY != 0)
+	{
+		if (textGrid[leftBox + delta] == '[' || textGrid[leftBox + delta] == ']')
+		{
+			pushBox(textGrid, leftBox + delta, dX, dY, numColumns);
+		}
+		if (textGrid[rightBox + delta] == '[' || textGrid[rightBox + delta] == ']')
+		{
+			pushBox(textGrid, rightBox + delta, dX, dY, numColumns);
+		}
+	}
+	else if (dX < 0)
+	{
+		if (textGrid[leftBox + delta] == '[' || textGrid[leftBox + delta] == ']')
+		{
+			pushBox(textGrid, leftBox + delta, dX, dY, numColumns);
+		}
+	}
+	else if (dX > 0)
+	{
+		if (textGrid[rightBox + delta] == '[' || textGrid[rightBox + delta] == ']')
+		{
+			pushBox(textGrid, rightBox + delta, dX, dY, numColumns);
+		}
+	}
+	textGrid[leftBox] = '.';
+	textGrid[rightBox] = '.';
+	textGrid[leftBox + delta] = '[';
+	textGrid[rightBox + delta] = ']';
+}
+
 void main()
 {
 	struct Vector inputVector;
@@ -131,11 +226,35 @@ void main()
 		}
 	}
 
+	// double our warehouse width
+	numColumns *= 2;
+
 	// create and fill our "2D" array
 	char* textGrid = malloc(sizeof(char) * numColumns * numRows);
-	for (int srcIndex = 0, dstIndex = 0; srcIndex < inputVector.count; srcIndex += numColumns + 1, dstIndex += numColumns)
+	int robotIndex = 0;
+	for (int srcIndex = 0, dstIndex = 0; srcIndex < inputVector.count; srcIndex++)
 	{
-		memcpy(&textGrid[dstIndex], &inputVector.data[srcIndex], sizeof(char) * numColumns);
+		if (inputVector.data[srcIndex] == '#')
+		{
+			textGrid[dstIndex++] = '#';
+			textGrid[dstIndex++] = '#';
+		}
+		else if (inputVector.data[srcIndex] == '.')
+		{
+			textGrid[dstIndex++] = '.';
+			textGrid[dstIndex++] = '.';
+		}
+		else if (inputVector.data[srcIndex] == '@')
+		{
+			robotIndex = dstIndex;
+			textGrid[dstIndex++] = '.';
+			textGrid[dstIndex++] = '.';
+		}
+		else if (inputVector.data[srcIndex] == 'O')
+		{
+			textGrid[dstIndex++] = '[';
+			textGrid[dstIndex++] = ']';
+		}
 	}
 
 	// get our moves
@@ -156,18 +275,6 @@ void main()
 		}
 	}
 	fclose(filePointer);
-
-	// find our robot
-	int robotIndex = 0;
-	for (int searchIndex = 0; searchIndex < numColumns * numRows; searchIndex++)
-	{
-		if (textGrid[searchIndex] == '@')
-		{
-			robotIndex = searchIndex;
-			textGrid[searchIndex] = '.'; // mark as empty
-			break;
-		}
-	}
 
 	// now move it accordingly
 	for (int moveIndex = 0; moveIndex < moveVector.count; moveIndex++)
@@ -202,40 +309,13 @@ void main()
 		{
 			// do nothing
 		}
-		else if (textGrid[nextIndex] == 'O') // box
+		else if (textGrid[nextIndex] == '[' || textGrid[nextIndex] == ']') // box
 		{
-			// check if we can push
-			int canPush = 0;
-			int pushIndex = nextIndex;
-			while (1)
-			{
-				pushIndex += (dY * numColumns) + dX;
-				if (textGrid[pushIndex] == '.')
-				{
-					canPush = 1;
-					break;
-				}
-				else if (textGrid[pushIndex] == '#')
-				{
-					break;
-				}
-			}
-
+			int canPush = canPushBox(textGrid, robotIndex, dX, dY, numColumns);
 			if (canPush)
 			{
-				while (1)
-				{
-					int pusheeIndex = pushIndex - ((dY * numColumns) + dX);
-					if (pusheeIndex == robotIndex)
-					{
-						// reached our robot so we are done pushing
-						robotIndex = nextIndex;
-						break;
-					}
-					textGrid[pushIndex] = textGrid[pusheeIndex];
-					textGrid[pusheeIndex] = '.';
-					pushIndex = pusheeIndex;
-				}
+				pushBox(textGrid, nextIndex, dX, dY, numColumns);
+				robotIndex = nextIndex;
 			}
 		}
 	}
@@ -244,7 +324,7 @@ void main()
 	int sum = 0;
 	for (int searchIndex = 0; searchIndex < numColumns * numRows; searchIndex++)
 	{
-		if (textGrid[searchIndex] == 'O')
+		if (textGrid[searchIndex] == '[')
 		{
 			int x = searchIndex % numColumns;
 			int y = searchIndex / numColumns;
