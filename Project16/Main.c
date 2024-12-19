@@ -14,23 +14,29 @@ struct Vector
 	VECTOR_DATA* data;
 };
 
+void initVectorWithSize(struct Vector* vector, int initialSize)
+{
+	vector->count = 0;
+	vector->size = initialSize;
+	vector->data = malloc(sizeof(VECTOR_DATA) * vector->size);
+}
+
 void initVector(struct Vector* vector)
 {
 	const int VECTOR_INIT_SIZE = 10;
-	vector->count = 0;
-	vector->size = VECTOR_INIT_SIZE;
-	vector->data = malloc(sizeof(VECTOR_DATA) * vector->size);
+	initVectorWithSize(vector, VECTOR_INIT_SIZE);
 }
 
 void copyVector(struct Vector* dst, struct Vector* src)
 {
-	dst->data = malloc(sizeof(VECTOR_DATA) * src->size);
-	if (dst->data)
+	if (dst->size < src->count)
 	{
-		memcpy(dst->data, src->data, sizeof(VECTOR_DATA) * src->size);
-		dst->count = src->count;
+		free(dst->data);
+		dst->data = malloc(sizeof(VECTOR_DATA) * src->size);
 		dst->size = src->size;
 	}
+	memcpy(dst->data, src->data, sizeof(VECTOR_DATA) * src->count);
+	dst->count = src->count;
 }
 
 void freeVector(struct Vector* vector)
@@ -84,7 +90,7 @@ int containsValueInVector(struct Vector* vector, VECTOR_DATA value)
 void clearVector(struct Vector* vector)
 {
 	vector->count = 0;
-	memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
+	//memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
 }
 
 int isValidLocation(int x, int y, int numColumns, int numRows)
@@ -96,7 +102,22 @@ int isValidLocation(int x, int y, int numColumns, int numRows)
 	return 1;
 }
 
+#define EAST 0
+#define SOUTH 1
+#define WEST 2
+#define NORTH 3
+
+int getFreePath(struct Vector* freePaths)
+{
+	assert(freePaths->count > 0);
+	freePaths->count--;
+	return freePaths->data[freePaths->count];
+}
+
 // adapted this from Wikipedia: https://en.wikipedia.org/wiki/A*_search_algorithm
+// to find all paths, we need to take into consideration the direction we came from
+// also, we need to keep track of the path we've taken so far so that we can mark all
+// the visited tiles once we reach the end
 int aStar(const VECTOR_DATA* textGrid, int numColumns, int numRows)
 {
 	// find our start and end spots
@@ -113,86 +134,132 @@ int aStar(const VECTOR_DATA* textGrid, int numColumns, int numRows)
 		}
 	}
 
+	int** cameFrom = malloc(sizeof(int*) * 4);
+	int** gScore = malloc(sizeof(int*) * 4);
+	int** fScore = malloc(sizeof(int*) * 4);
+	for (int directionIndex = 0; directionIndex < 4; directionIndex++)
+	{
+		cameFrom[directionIndex] = malloc(sizeof(int) * numColumns * numRows);
+		gScore[directionIndex] = malloc(sizeof(int) * numColumns * numRows);
+		fScore[directionIndex] = malloc(sizeof(int) * numColumns * numRows);
+		for (int setIndex = 0; setIndex < numColumns * numRows; setIndex++)
+		{
+			gScore[directionIndex][setIndex] = INT_MAX;
+			fScore[directionIndex][setIndex] = INT_MAX;
+		}
+
+		memset(cameFrom[directionIndex], 0, sizeof(int) * numColumns * numRows);
+		gScore[directionIndex][start] = 0;
+		fScore[directionIndex][start] = 0;
+	}
+
+#define MAX_POSSIBLE_PATHS 1000000
+	struct Vector* possiblePaths;
+	possiblePaths = malloc(sizeof(struct Vector) * MAX_POSSIBLE_PATHS);
+	for (int pathIndex = 0; pathIndex < MAX_POSSIBLE_PATHS; pathIndex++)
+	{
+		initVector(&possiblePaths[pathIndex]);
+	}
+
+	struct Vector freePaths;
+	initVectorWithSize(&freePaths, MAX_POSSIBLE_PATHS);
+	for (int pathIndex = MAX_POSSIBLE_PATHS - 1; pathIndex >= 0; pathIndex--)
+	{
+		addVector(&freePaths, pathIndex);
+	}
+
 	struct Vector openSet;
 	initVector(&openSet);
 	addVector(&openSet, start);
-	
+
 	struct Vector openDirection;
 	initVector(&openDirection);
 	addVector(&openDirection, 0);
 
-	int* cameFrom = malloc(sizeof(int) * numColumns * numRows);
-	memset(cameFrom, 0, sizeof(int) * numColumns * numRows);
+	struct Vector openPaths;
+	initVector(&openPaths);
 
-	int* gScore = malloc(sizeof(int) * numColumns * numRows);
-	int* fScore = malloc(sizeof(int) * numColumns * numRows);
-	for (int setIndex = 0; setIndex < numColumns * numRows; setIndex++)
-	{
-		gScore[setIndex] = INT_MAX;
-		fScore[setIndex] = INT_MAX;
-	}
-	gScore[start] = 0;
-	fScore[start] = 0;
+	int freePathIndex = getFreePath(&freePaths);
+	addVector(&possiblePaths[freePathIndex], start);
+	addVector(&openPaths, freePathIndex);
+
+	int* touchedTiles = malloc(sizeof(int) * numColumns * numRows);
+	memset(touchedTiles, 0, sizeof(int) * numColumns * numRows);
+
+	int endGScore = INT_MAX;
 
 	while (openSet.count > 0)
 	{
 		int currentIndex = 0;
 		int current = openSet.data[currentIndex];
 		int lastDirection = openDirection.data[currentIndex];
-		int lowestFScore = fScore[current];
+		int currentPath = openPaths.data[currentIndex];
+		int lowestFScore = fScore[lastDirection][current];
 		for (int openSetIndex = 1; openSetIndex < openSet.count; openSetIndex++)
 		{
 			int checkCurrent = openSet.data[openSetIndex];
-			int fScoreValue = fScore[checkCurrent];
+			int checkDirection = openDirection.data[openSetIndex];
+			int fScoreValue = fScore[checkDirection][checkCurrent];
 			if (fScoreValue < lowestFScore)
 			{
 				current = checkCurrent;
 				lowestFScore = fScoreValue;
 				currentIndex = openSetIndex;
-				lastDirection = openDirection.data[openSetIndex];
+				lastDirection = checkDirection;
+				currentPath = openPaths.data[openSetIndex];
 			}
-		}
-		if (current == end)
-		{
-			return gScore[current];
 		}
 
 		removeElementAtVector(&openSet, currentIndex);
 		removeElementAtVector(&openDirection, currentIndex);
+		removeElementAtVector(&openPaths, currentIndex);
 
-		// 0 = East, 1 = South, 2 = West, 3 = North (this also matches the directions)
-		for (int neighborCount = 0; neighborCount < 4; neighborCount++)
+		if (current == end)
+		{
+			// verify that this is one of the shortest paths
+			assert(endGScore == INT_MAX || endGScore == gScore[lastDirection][end]);
+			endGScore = gScore[lastDirection][end];
+
+			for (int pathIndex = 0; pathIndex < possiblePaths[currentPath].count; pathIndex++)
+			{
+				touchedTiles[possiblePaths[currentPath].data[pathIndex]] = 1;
+			}
+
+			continue; // go back and find the next eligible path
+		}
+
+		for (int directionIndex = 0; directionIndex < 4; directionIndex++)
 		{
 			int dX = 0, dY = 0;
-			if (neighborCount == 0)
+			if (directionIndex == EAST)
 			{
 				dX = 1;
 			}
-			else if (neighborCount == 1)
+			else if (directionIndex == SOUTH)
 			{
 				dY = 1;
 			}
-			else if (neighborCount == 2)
+			else if (directionIndex == WEST)
 			{
 				dX = -1;
 			}
-			else if (neighborCount == 3)
+			else if (directionIndex == NORTH)
 			{
 				dY = -1;
 			}
 			int neighbor = current + (dY * numColumns + dX);
 
-			int tentativeGScore = gScore[current];
+			int tentativeGScore = gScore[lastDirection][current];
 			if (textGrid[neighbor] == '#')
 			{
-				tentativeGScore = INT_MAX;
+				continue; // can't go this way
 			}
-			else if (neighborCount != lastDirection)
+			else if (directionIndex != lastDirection)
 			{
 				tentativeGScore += 1001; // add an additional 1 for the movement forward
-				if (abs(lastDirection - neighborCount) == 2)
+				if (abs(lastDirection - directionIndex) == 2)
 				{
-					tentativeGScore += 1000; // it takes another 1000 to rotate 180
+					continue; // no need to check the direction we came from
 				}
 			}
 			else
@@ -200,10 +267,13 @@ int aStar(const VECTOR_DATA* textGrid, int numColumns, int numRows)
 				tentativeGScore += 1;
 			}
 
-			if (tentativeGScore < gScore[neighbor])
+			if (tentativeGScore <= gScore[directionIndex][neighbor] && tentativeGScore <= endGScore) // no need to continue if this will be more than a shorter finished path
 			{
-				cameFrom[neighbor] = current;
-				gScore[neighbor] = tentativeGScore;
+				cameFrom[directionIndex][neighbor] = current;
+				gScore[directionIndex][neighbor] = tentativeGScore;
+				int path = getFreePath(&freePaths);
+				copyVector(&possiblePaths[path], &possiblePaths[currentPath]);
+				addVector(&possiblePaths[path], neighbor);
 
 				// for heuristic, we'll take a simple Manhattan distance approach
 				int endX = end % numColumns;
@@ -211,15 +281,46 @@ int aStar(const VECTOR_DATA* textGrid, int numColumns, int numRows)
 				int neighborX = neighbor % numColumns;
 				int neighborY = neighbor / numColumns;
 				int heuristic = abs(endX - neighborX) + abs(endY - neighborY);
-				fScore[neighbor] = tentativeGScore + heuristic;
-				if (!containsValueInVector(&openSet, neighbor))
+				fScore[directionIndex][neighbor] = tentativeGScore + heuristic;
 				{
 					addVector(&openSet, neighbor);
-					addVector(&openDirection, neighborCount);
+					addVector(&openDirection, directionIndex);
+					addVector(&openPaths, path);
 				}
 			}
 		}
+
+		addVector(&freePaths, currentPath); // always return our current path
 	}
+
+	// checked everything, so now figure out how many tiles we have touched
+	int numTouchedTiles = 0;
+	for (int tileIndex = 0; tileIndex < numColumns * numRows; tileIndex++)
+	{
+		if (touchedTiles[tileIndex] != 0)
+		{
+			numTouchedTiles++;
+		}
+	}
+
+	// debug print
+	for (int y = 0; y < numRows; y++)
+	{
+		for (int x = 0; x < numColumns; x++)
+		{
+			if (touchedTiles[y * numColumns + x] != 0)
+			{
+				printf("O");
+			}
+			else
+			{
+				printf("%c", textGrid[y * numColumns + x]);
+			}
+		}
+		printf("\n");
+	}
+
+	return numTouchedTiles;
 }
 
 void main()
