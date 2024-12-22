@@ -145,17 +145,20 @@ int aStar(const char* textGrid, int numColumns, int numRows)
 		}
 		if (current == end)
 		{
+			/*
 			char* pathGrid = malloc(sizeof(char) * numColumns * numRows);
 			memcpy(pathGrid, textGrid, sizeof(char) * numColumns * numRows);
+			*/
 			int numSpots = 0;
 			while (current != start)
 			{
-				pathGrid[current] = 'O';
+				//pathGrid[current] = 'O';
 				current = cameFrom[current];
 				numSpots++;
 			}
-			pathGrid[current] = 'O';
+			//pathGrid[current] = 'O';
 
+			/*
 			for (int y = 0; y < numRows; y++)
 			{
 				for (int x = 0; x < numColumns; x++)
@@ -164,6 +167,7 @@ int aStar(const char* textGrid, int numColumns, int numRows)
 				}
 				printf("\n");
 			}
+			*/
 
 			return numSpots;
 		}
@@ -260,6 +264,7 @@ void main()
 		textGrid[y * numColumns + x] = '#';
 	}
 
+	/*
 	for (int y = 0; y < numRows; y++)
 	{
 		for (int x = 0; x < numColumns; x++)
@@ -269,7 +274,18 @@ void main()
 		printf("\n");
 	}
 	printf("\n");
+	*/
 
-	int steps = aStar(textGrid, numColumns, numRows);
-	printf("%d\n", steps);
+	int steps = 0;
+	int x = 0;
+	int y = 0;
+	do {
+		x = inputVector.data[numToSimulate * 2];
+		y = inputVector.data[numToSimulate * 2 + 1];
+		textGrid[y * numColumns + x] = '#';
+
+		numToSimulate++;
+		steps = aStar(textGrid, numColumns, numRows);
+	} while (steps != INT_MAX);
+	printf("%d,%d\n", x,y);
 }
