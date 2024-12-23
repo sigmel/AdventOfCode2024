@@ -255,56 +255,60 @@ int race(const VECTOR_DATA* textGrid, int numColumns, int numRows)
 	*/
 
 	VECTOR_DATA* testGrid = malloc(sizeof(VECTOR_DATA) * numColumns * numRows);
-	memcpy(testGrid, textGrid, sizeof(VECTOR_DATA) * numColumns * numRows);
+	for (int setIndex = 0; setIndex < numColumns * numRows; setIndex++)
+	{
+		testGrid[setIndex] = INT_MAX;
+	}
+	for (int pathIndex = 0; pathIndex < shortestPath.count; pathIndex++)
+	{
+		testGrid[shortestPath.data[pathIndex]] = pathIndex;
+	}
+
+	const int threshold = 100;
+	const int cheatAmount = 20;
+
+	struct Vector cheatSpace;
+	initVector(&cheatSpace);
+
+	// create our circle of offsets
+	for (int cheatY = cheatAmount; cheatY >= -cheatAmount; cheatY--)
+	{
+		for (int cheatX = -(cheatAmount - abs(cheatY)); cheatX <= cheatAmount - abs(cheatY); cheatX++)
+		{
+			addVector(&cheatSpace, cheatX);
+			addVector(&cheatSpace, cheatY);
+		}
+	}
 
 	int numCheats = 0;
 
-	// I believe that the hack only allows you to go in straight lines bypassing a single wall
-	// so we'll make sure that there is only one wall in each direction we are testing, since I think we only care about going striaght through
-	// and if so, modify the track and resolve to see how much (if any) that saves
+	// There is only a single path for these "shortest" solutions, so if we wind up on one again,
+	// we can just pick back up from there. Also, since we need to find everything, we can basically just iterate
+	// over a circular grid at each location and see what the end result would be.
 	for (int pathIndex = 2; pathIndex < shortestPath.count; pathIndex++) // can skip the end space and the one right before that
 	{
 		int position = shortestPath.data[pathIndex];
 		int x = position % numColumns;
 		int y = position / numColumns;
 
-		for (int directionIndex = 0; directionIndex < 4; directionIndex++)
+		for (int cheatIndex = 0; cheatIndex < cheatSpace.count; cheatIndex += 2)
 		{
-			int dX = 0, dY = 0;
-			if (directionIndex == EAST)
-			{
-				dX = 1;
-			}
-			else if (directionIndex == SOUTH)
-			{
-				dY = 1;
-			}
-			else if (directionIndex == WEST)
-			{
-				dX = -1;
-			}
-			else if (directionIndex == NORTH)
-			{
-				dY = -1;
-			}
+			int dX = cheatSpace.data[cheatIndex];
+			int dY = cheatSpace.data[cheatIndex + 1];
 			int testPosition = position + (dY * numColumns + dX);
-			if (isValidLocation(x + dX, y + dY, numColumns, numRows) && textGrid[testPosition] == '#') // make sure we're ignoring a wall
+
+			// make sure we end on an empty space
+			if (isValidLocation(x + dX, y + dY, numColumns, numRows) && textGrid[testPosition] != '#')
 			{
-				int landPosition = testPosition + (dY * numColumns + dX);
-				if (isValidLocation(x + (dX * 2), y + (dY * 2), numColumns, numRows) && textGrid[landPosition] != '#') // make sure we're landing safely
+				// see what our cost is from here (cost of cheat path + cost of getting here + cost remaining)
+				int cheatCost = abs(dX) + abs(dY);
+				int currentCost = (shortestPath.count - 1) - pathIndex;
+				int remainingCost = testGrid[testPosition];
+				int cheatScore = cheatCost + currentCost + remainingCost;
+				if (cheatScore + threshold <= initialScore)
 				{
-					testGrid[testPosition] = '.';
-					int cheatScore = aStar(testGrid, numColumns, numRows, position, end, cameFrom, gScore, fScore, NULL);
-					testGrid[testPosition] = '#'; // restore our wall
-
-					cheatScore += (shortestPath.count - 1) - pathIndex; // add back in the score that got us to this point (need to remove the start from influencing)
-
-					const int threshold = 100;
-					if (cheatScore + threshold <= initialScore)
-					{
-						//printf("Saved %d picoseconds going %d, %d at %d, %d\n", initialScore - cheatScore, dX, dY, x, y);
-						numCheats++;
-					}
+					//printf("Saved %d picoseconds going %d, %d at %d, %d\n", initialScore - cheatScore, dX, dY, x, y);
+					numCheats++;
 				}
 			}
 		}
