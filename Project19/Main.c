@@ -87,34 +87,184 @@ void clearVector(struct Vector* vector)
 	memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
 }
 
-int findPattern(const struct Vector* patternVector, int numPatterns, char* pattern)
+#define NUM_HASHES_SET (256 * 1024) // let's just have a lot since we don't want to allow collisions
+struct HashSet
 {
-	for (int patternIndex = 0; patternIndex < numPatterns; patternIndex++)
+	char* value[NUM_HASHES_SET];
+};
+
+// using FNV from https://stackoverflow.com/questions/7666509/hash-function-for-string
+unsigned int FNV(const char* key)
+{
+	// See: https://github.com/aappleby/smhasher/blob/master/src/Hashes.cpp
+	unsigned int h = 0x12345678L /* seed*/ ^ 2166136261UL;
+	const char* data = (const char*)key;
+	for (int i = 0; data[i] != '\0'; i++)
 	{
-		if (memcmp(patternVector[patternIndex].data, pattern, sizeof(VECTOR_DATA) * patternVector[patternIndex].count) == 0)
+		h ^= data[i];
+		h *= 16777619;
+	}
+	return h;
+}
+
+void initHashSet(struct HashSet* hashSet)
+{
+	memset(hashSet->value, 0, sizeof(hashSet->value));
+}
+
+void addHashSet(struct HashSet* hashSet, const char* str)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_SET;
+	assert(hashSet->value[bucket] == 0);
+
+	size_t length = strlen(str);
+	length++; // add null char
+	hashSet->value[bucket] = malloc(sizeof(char) * length);
+	strcpy(hashSet->value[bucket], str);
+}
+
+int hasValueHashSet(const struct HashSet* hashSet, const char* str)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_SET;
+	if (hashSet->value[bucket] == 0 || strcmp(hashSet->value[bucket], str) != 0) // need to verify the string matches
+	{
+		return 0;
+	}
+	return 1;
+}
+
+#define NUM_HASHES_BUCKET (256)
+struct HashBucket
+{
+	unsigned int hashes[NUM_HASHES_BUCKET];
+	char pattern[NUM_HASHES_BUCKET][128];
+	long long matches[NUM_HASHES_BUCKET];
+};
+#define NUM_HASHES_TABLE (1024)
+struct HashTable
+{
+	struct HashBucket buckets[NUM_HASHES_TABLE];
+};
+
+void initHashTable(struct HashTable* hashTable)
+{
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_TABLE; bucketIndex++)
+	{
+		memset(hashTable->buckets[bucketIndex].hashes, 0, sizeof(hashTable->buckets[bucketIndex].hashes));
+		memset(hashTable->buckets[bucketIndex].pattern, 0, sizeof(hashTable->buckets[bucketIndex].pattern));
+		memset(hashTable->buckets[bucketIndex].matches, 0, sizeof(hashTable->buckets[bucketIndex].matches));
+	}
+}
+
+void addHashTable(struct HashTable* hashTable, const char* str, long long matches)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_BUCKET;
+
+	int added = 0;
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_BUCKET; bucketIndex++)
+	{
+		if (hashTable->buckets[bucket].pattern[bucketIndex][0] == 0) // we need a valid non-zero pattern, so can use this to see if this is set
 		{
-			if (pattern[patternVector[patternIndex].count] == 0)
+			assert(strlen(str) < 127);
+			hashTable->buckets[bucket].hashes[bucketIndex] = hash;
+			strcpy(hashTable->buckets[bucket].pattern[bucketIndex], str);
+			hashTable->buckets[bucket].matches[bucketIndex] = matches;
+			added = 1;
+			break;
+		}
+	}
+	assert(added);
+}
+
+long long hasPatternHashTable(struct HashTable* hashTable, const char* str)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_BUCKET;
+
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_BUCKET; bucketIndex++)
+	{
+		if (hashTable->buckets[bucket].pattern[bucketIndex][0] == 0)
+		{
+			break; // this is empty, so it can't be here
+		}
+		if (hashTable->buckets[bucket].hashes[bucketIndex] == hash && strcmp(hashTable->buckets[bucket].pattern[bucketIndex], str) == 0) // strcmp might be unnecessary, but to be safe
+		{
+			return hashTable->buckets[bucket].matches[bucketIndex];
+		}
+	}
+
+	return 0;
+}
+
+void findPattern(const struct HashSet* patternHashSet, int maxPatternLength, const char* pattern, long long* possiblePatterns, struct HashTable* cacheTable)
+{
+	char scratch[16]; // should be enough for any of our patterns
+	memset(scratch, 0, sizeof(scratch));
+	for (int patternIndex = 0; patternIndex < maxPatternLength && pattern[patternIndex] != 0; patternIndex++)
+	{
+		assert(patternIndex < 16);
+		scratch[patternIndex] = pattern[patternIndex];
+		if (hasValueHashSet(patternHashSet, scratch))
+		{
+			if (pattern[patternIndex + 1] == 0)
 			{
-				return 1;
+				(*possiblePatterns)++;
 			}
 			else
 			{
-				if (findPattern(patternVector, numPatterns, &pattern[patternVector[patternIndex].count]))
+				long long numMatches = 0;
+				if (cacheTable != NULL)
 				{
-					return 1;
+					numMatches = hasPatternHashTable(cacheTable, &pattern[patternIndex + 1]);
+				}
+				if (numMatches > 0)
+				{
+					(*possiblePatterns) += numMatches;
+				}
+				else
+				{
+					findPattern(patternHashSet, maxPatternLength, &pattern[patternIndex + 1], possiblePatterns, cacheTable);
 				}
 			}
 		}
 	}
-	return 0;
+}
+
+void findAllPatterns(const struct HashSet* patternHashSet, int maxPatternLength, char* pattern, long long* possiblePatterns, struct HashTable* cacheTable)
+{
+	// initialize our cache
+	int patternLength = (int)strlen(pattern);
+	for (int patternIndex = 1; patternIndex < patternLength; patternIndex++) // don't need to cache any single letters
+	{
+		const char* checkPattern = &pattern[patternLength - patternIndex - 1];
+		if (hasPatternHashTable(cacheTable, checkPattern) <= 0) // make sure this isn't already in our cache
+		{
+			long long cachePatternNum = 0;
+			findPattern(patternHashSet, maxPatternLength, checkPattern, &cachePatternNum, cacheTable);
+			if (cachePatternNum > 0)
+			{
+				addHashTable(cacheTable, checkPattern, cachePatternNum);
+			}
+		}
+	}
+
+	long long numTotalPatterns = hasPatternHashTable(cacheTable, pattern);
+	printf("%lld - %s\n", numTotalPatterns, pattern);
+
+	// now add the number of possibilities
+	(*possiblePatterns) += numTotalPatterns;
 }
 
 void main()
 {
-#define MAX_PATTERNS 10000
-	struct Vector* patternVector = malloc(sizeof(struct Vector) * MAX_PATTERNS);
-
 	FILE* filePointer = fopen("puzzle.txt", "r");
+
+	struct HashSet* patternHashSet;
+	patternHashSet = malloc(sizeof(struct HashSet));
+	initHashSet(patternHashSet);
 
 #define INPUT_SIZE 4096
 	char input[INPUT_SIZE];
@@ -122,27 +272,40 @@ void main()
 	// get our patterns
 	fgets(input, INPUT_SIZE, filePointer);
 	int advIndex = 0;
-	int numPatterns = 0;
-	initVector(&patternVector[numPatterns]);
+	int startString = 0;
+	int maxPatternLength = 0;
 	while (input[advIndex] != '\n')
 	{
 		if (input[advIndex] == ',')
 		{
-			numPatterns++;
-			initVector(&patternVector[numPatterns]);
+			input[advIndex] = 0; // null terminate
+			int length = (int)strlen(&input[startString]);
+			if (length > maxPatternLength)
+			{
+				maxPatternLength = length;
+			}
+			addHashSet(patternHashSet, &input[startString]);
+
+			startString = advIndex;
 		}
-		else if (isalpha(input[advIndex]))
+		else if (!isalpha(input[advIndex]))
 		{
-			addVector(&patternVector[numPatterns], input[advIndex]);
+			startString = advIndex + 1;
 		}
 		advIndex++;
 	}
-	numPatterns++;
+	input[advIndex] = 0; // null terminate
+	addHashSet(patternHashSet, &input[startString]); // add the last one
 
 	fgets(input, INPUT_SIZE, filePointer); // newline
 
-	// we could get fancy with tokenizing or something, but let's just try brute force to start
-	int possiblePatterns = 0;
+	// we'll keep a cache of all results so that we can use past calculations to skip future ones
+	// we also need to iterate backwards so that we know we can successfully complete the pattern with each entry
+	struct HashTable* cacheTable = malloc(sizeof(struct HashTable));
+	initHashTable(cacheTable);
+
+	long long possiblePatterns = 0;
+	int numPossible = 0;
 	while (fgets(input, INPUT_SIZE, filePointer))
 	{
 		int length = (int)strlen(input);
@@ -152,11 +315,13 @@ void main()
 			length--;
 		}
 
-		if (findPattern(patternVector, numPatterns, input))
+		long long beforePossiblePatterns = possiblePatterns;
+		findAllPatterns(patternHashSet, maxPatternLength, input, &possiblePatterns, cacheTable);
+		if (possiblePatterns != beforePossiblePatterns)
 		{
-			possiblePatterns++;
+			numPossible++;
 		}
 	}
 
-	printf("%d\n", possiblePatterns);
+	printf("%lld\n", possiblePatterns);
 }
