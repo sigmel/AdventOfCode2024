@@ -93,6 +93,86 @@ void clearVector(struct Vector* vector)
 	//memset(vector->data, 0, sizeof(VECTOR_DATA) * vector->size);
 }
 
+// using FNV from https://stackoverflow.com/questions/7666509/hash-function-for-string
+unsigned int FNV(const char* key)
+{
+	// See: https://github.com/aappleby/smhasher/blob/master/src/Hashes.cpp
+	unsigned int h = 0x12345678L /* seed*/ ^ 2166136261UL;
+	const char* data = (const char*)key;
+	for (int i = 0; data[i] != '\0'; i++)
+	{
+		h ^= data[i];
+		h *= 16777619;
+	}
+	return h;
+}
+
+#define NUM_HASHES_BUCKET (256)
+struct HashBucket
+{
+	unsigned int hashes[NUM_HASHES_BUCKET];
+	char pattern[NUM_HASHES_BUCKET][128];
+	long long numMoves[NUM_HASHES_BUCKET];
+};
+
+#define NUM_HASHES_TABLE (1024)
+struct HashTable
+{
+	struct HashBucket buckets[NUM_HASHES_TABLE];
+};
+
+void initHashTable(struct HashTable* hashTable)
+{
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_TABLE; bucketIndex++)
+	{
+		memset(hashTable->buckets[bucketIndex].hashes, 0, sizeof(hashTable->buckets[bucketIndex].hashes));
+		memset(hashTable->buckets[bucketIndex].pattern, 0, sizeof(hashTable->buckets[bucketIndex].pattern));
+		memset(hashTable->buckets[bucketIndex].numMoves, 0, sizeof(hashTable->buckets[bucketIndex].numMoves));
+	}
+}
+
+void addHashTable(struct HashTable* hashTable, const char* str, long long numMoves)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_BUCKET;
+
+	int added = 0;
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_BUCKET; bucketIndex++)
+	{
+		if (hashTable->buckets[bucket].pattern[bucketIndex][0] == 0) // we need a valid non-zero pattern, so can use this to see if this is set
+		{
+			assert(strlen(str) < 127);
+			hashTable->buckets[bucket].hashes[bucketIndex] = hash;
+			strcpy(hashTable->buckets[bucket].pattern[bucketIndex], str);
+			hashTable->buckets[bucket].numMoves[bucketIndex] = numMoves;
+			added = 1;
+			break;
+		}
+	}
+	assert(added);
+}
+
+void hasPatternHashTable(struct HashTable* hashTable, const char* str, long long* numMoves)
+{
+	unsigned int hash = FNV(str);
+	int bucket = hash % NUM_HASHES_BUCKET;
+
+	*numMoves = 0;
+
+	for (int bucketIndex = 0; bucketIndex < NUM_HASHES_BUCKET; bucketIndex++)
+	{
+		if (hashTable->buckets[bucket].pattern[bucketIndex][0] == 0)
+		{
+			break; // this is empty, so it can't be here
+		}
+		if (hashTable->buckets[bucket].hashes[bucketIndex] == hash && strcmp(hashTable->buckets[bucket].pattern[bucketIndex], str) == 0) // strcmp might be unnecessary, but to be safe
+		{
+			*numMoves = hashTable->buckets[bucket].numMoves[bucketIndex];
+			return;
+		}
+	}
+}
+
 #define NUM_KEYS 12
 struct NumericKeypad
 {
@@ -104,7 +184,7 @@ struct NumericKeypad
 
 void initNumericKeypad(struct NumericKeypad* numKeypad)
 {
-	static const int keys[NUM_KEYS] = { 7, 8, 9, 4, 5, 6, 1, 2, 3, 'X', 0, 'A' };
+	static const int keys[NUM_KEYS] = { '7', '8', '9', '4', '5', '6', '1', '2', '3', 'X', '0', 'A' };
 	memcpy(numKeypad->keys, keys, sizeof(keys));
 	numKeypad->numColumns = 3;
 	numKeypad->numRows = 4;
@@ -129,28 +209,31 @@ void initDirectionKeypad(struct DirectionalKeypad* dirKeypad)
 	dirKeypad->current = 2;
 }
 
-void moveHorizontal(int* x, int endX, int dX, struct Vector* moveVector)
+#define MAX_SINGLE_MOVES 8
+void moveHorizontal(int* x, int endX, int dX, int* numMoves, int* moves)
 {
 	while (*x != endX)
 	{
-		if (dX < 0) { addVector(moveVector, '<'); }
-		else { addVector(moveVector, '>'); }
+		if (dX < 0) { moves[*numMoves] = '<'; (*numMoves)++; }
+		else { moves[*numMoves] = '>'; (*numMoves)++; }
 		*x += dX;
 	}
+	assert(*numMoves <= MAX_SINGLE_MOVES);
 }
 
-void moveVertical(int* y, int endY, int dY, struct Vector* moveVector)
+void moveVertical(int* y, int endY, int dY, int* numMoves, int* moves)
 {
 	while (*y != endY)
 	{
-		if (dY < 0) { addVector(moveVector, '^'); }
-		else { addVector(moveVector, 'v'); }
+		if (dY < 0) { moves[*numMoves] = '^'; (*numMoves)++; }
+		else { moves[*numMoves] = 'v'; (*numMoves)++; }
 		*y += dY;
 	}
+	assert(*numMoves <= MAX_SINGLE_MOVES);
 }
 
 // the basic approach is that we want to move left to right on the dir pad, because we end on A, so getting there from < sucks
-void numericKeypad(struct NumericKeypad* numKeypad, int destination, struct Vector* moveVector)
+void numericKeypad(struct NumericKeypad* numKeypad, int destination, int* numMoves, int* moves)
 {
 	int end = 0;
 	for (int keyIndex = 0; keyIndex < NUM_KEYS; keyIndex++)
@@ -182,14 +265,14 @@ void numericKeypad(struct NumericKeypad* numKeypad, int destination, struct Vect
 	{
 		if (y != numKeypad->numRows - 1 || endX != 0) // make sure we won't hit the blank spot going left
 		{
-			moveHorizontal(&x, endX, dX, moveVector);
-			moveVertical(&y, endY, dY, moveVector);
+			moveHorizontal(&x, endX, dX, numMoves, moves);
+			moveVertical(&y, endY, dY, numMoves, moves);
 		}
 		else
 		{
 			// otherwise go the other way
-			moveVertical(&y, endY, dY, moveVector);
-			moveHorizontal(&x, endX, dX, moveVector);
+			moveVertical(&y, endY, dY, numMoves, moves);
+			moveHorizontal(&x, endX, dX, numMoves, moves);
 		}
 	}
 
@@ -198,50 +281,54 @@ void numericKeypad(struct NumericKeypad* numKeypad, int destination, struct Vect
 	{
 		if (x != 0 || endY != numKeypad->numRows - 1) // make sure we won't hit the blank spot going down
 		{
-			moveVertical(&y, endY, dY, moveVector);
-			moveHorizontal(&x, endX, dX, moveVector);
+			moveVertical(&y, endY, dY, numMoves, moves);
+			moveHorizontal(&x, endX, dX, numMoves, moves);
 		}
 		else
 		{
-			moveHorizontal(&x, endX, dX, moveVector);
-			moveVertical(&y, endY, dY, moveVector);
+			moveHorizontal(&x, endX, dX, numMoves, moves);
+			moveVertical(&y, endY, dY, numMoves, moves);
 		}
 	}
 
 	// deal with any leftover moves
-	moveVertical(&y, endY, dY, moveVector);
-	moveHorizontal(&x, endX, dX, moveVector);
+	moveVertical(&y, endY, dY, numMoves, moves);
+	moveHorizontal(&x, endX, dX, numMoves, moves);
 
-	addVector(moveVector, 'A');
+	moves[*numMoves] = 'A'; (*numMoves)++;
+	assert(*numMoves <= MAX_SINGLE_MOVES);
+
 	numKeypad->current = end;
 }
 
-void directionalKeypad(struct DirectionalKeypad* dirKeypad, struct Vector* moveVector)
+static int sKeyLookup[128];
+
+void directionalKeypad(struct DirectionalKeypad* dirKeypads, int number, int destination, int depth, struct HashTable* cacheTable, long long* numMoves)
 {
-	struct Vector targetVectors;
-	initVector(&targetVectors);
-	copyVector(&targetVectors, moveVector);
+	int moveList[MAX_SINGLE_MOVES]; // should be plenty for a single move
 
-	clearVector(moveVector);
+	int end = sKeyLookup[destination];
 
-	for (int targetIndex = 0; targetIndex < targetVectors.count; targetIndex++)
+	int cached = 1;
+
+	char key[128] = { 0 };
+	key[0] = (char)destination;
+	for (int keyIndex = 1; keyIndex < depth + 2; keyIndex++)
 	{
-		int destination = targetVectors.data[targetIndex];
+		key[keyIndex] = (char)dirKeypads[depth].keys[dirKeypads[depth - keyIndex + 1].current];
+	}
+	key[depth + 2] = number;
+	long long moves = 0;
+	hasPatternHashTable(cacheTable, key, &moves);
 
-		int end = 0;
-		for (int keyIndex = 0; keyIndex < NUM_KEYS; keyIndex++)
-		{
-			if (dirKeypad->keys[keyIndex] == destination)
-			{
-				end = keyIndex;
-				break;
-			}
-		}
+	if (moves <= 0)
+	{
+		cached = 0;
 
-		int x = dirKeypad->current % dirKeypad->numColumns;
-		int y = dirKeypad->current / dirKeypad->numColumns;
-		int endX = end % dirKeypad->numColumns;
-		int endY = end / dirKeypad->numColumns;
+		int x = dirKeypads[depth].current % dirKeypads[depth].numColumns;
+		int y = dirKeypads[depth].current / dirKeypads[depth].numColumns;
+		int endX = end % dirKeypads[depth].numColumns;
+		int endY = end / dirKeypads[depth].numColumns;
 		int dX = endX - x;
 		if (dX != 0)
 		{
@@ -253,75 +340,118 @@ void directionalKeypad(struct DirectionalKeypad* dirKeypad, struct Vector* moveV
 			dY = dY / abs(dY);
 		}
 
+		int numCalculatedMoves = 0;
+
 		// try to go left first, but we can't do that if we would cross the blank spot
 		if (dX < 0)
 		{
 			if (y != 0 || endX != 0) // make sure we won't hit the blank spot going left
 			{
-				moveHorizontal(&x, endX, dX, moveVector);
-				moveVertical(&y, endY, dY, moveVector);
+				moveHorizontal(&x, endX, dX, &numCalculatedMoves, moveList);
+				moveVertical(&y, endY, dY, &numCalculatedMoves, moveList);
 			}
 			else
 			{
 				// otherwise go the other way
-				moveVertical(&y, endY, dY, moveVector);
-				moveHorizontal(&x, endX, dX, moveVector);
+				moveVertical(&y, endY, dY, &numCalculatedMoves, moveList);
+				moveHorizontal(&x, endX, dX, &numCalculatedMoves, moveList);
 			}
 		}
 
 		// handle any up moves assuming we don't go through the illegal space
-		if (dY > 0)
+		else if (dY < 0)
 		{
 			if (x != 0 || endY != 0) // make sure we won't hit the blank spot going down
 			{
-				moveVertical(&y, endY, dY, moveVector);
-				moveHorizontal(&x, endX, dX, moveVector);
+				moveVertical(&y, endY, dY, &numCalculatedMoves, moveList);
+				moveHorizontal(&x, endX, dX, &numCalculatedMoves, moveList);
 			}
 			else
 			{
-				moveHorizontal(&x, endX, dX, moveVector);
-				moveVertical(&y, endY, dY, moveVector);
+				moveHorizontal(&x, endX, dX, &numCalculatedMoves, moveList);
+				moveVertical(&y, endY, dY, &numCalculatedMoves, moveList);
 			}
 		}
 
 		// deal with any leftover moves
-		moveVertical(&y, endY, dY, moveVector);
-		moveHorizontal(&x, endX, dX, moveVector);
+		moveVertical(&y, endY, dY, &numCalculatedMoves, moveList);
+		moveHorizontal(&x, endX, dX, &numCalculatedMoves, moveList);
 
-		addVector(moveVector, 'A');
-		dirKeypad->current = end;
+		moveList[numCalculatedMoves] = 'A'; numCalculatedMoves++;
+		assert(numCalculatedMoves <= MAX_SINGLE_MOVES);
+
+		moves = numCalculatedMoves;
+	}
+	else
+	{
+		cached = 1;
 	}
 
-	freeVector(&targetVectors);
+	dirKeypads[depth].current = end;
+	if (depth > 0)
+	{
+		if (!cached)
+		{
+			long long cachedMoves = 0;
+			for (int moveIndex = 0; moveIndex < moves; moveIndex++)
+			{
+				directionalKeypad(dirKeypads, number, moveList[moveIndex], depth - 1, cacheTable, &cachedMoves);
+			}
+			addHashTable(cacheTable, key, cachedMoves);
+			*numMoves += cachedMoves;
+		}
+		else
+		{
+			*numMoves += moves;
+		}
+	}
+	else
+	{
+		*numMoves += moves;
+		if (!cached)
+		{
+			addHashTable(cacheTable, key, moves);
+		}
+	}
 }
 
+// we can utilize caching to speed this up similar to how we did before since the movement calculations will be consistent
+// to make that work, we'll determine all the moves for a single digit at a time so that we can better reuse calculations
 void main()
 {
+	// directional key lookup
+	sKeyLookup['X'] = 0;
+	sKeyLookup['^'] = 1;
+	sKeyLookup['A'] = 2;
+	sKeyLookup['<'] = 3;
+	sKeyLookup['v'] = 4;
+	sKeyLookup['>'] = 5;
+
 	struct Vector inputVector;
 	initVector(&inputVector);
-
-	struct Vector moveVector;
-	initVector(&moveVector);
 
 	struct NumericKeypad numKeypad;
 	initNumericKeypad(&numKeypad);
 
-	struct DirectionalKeypad dirKeypad0;
-	initDirectionKeypad(&dirKeypad0);
+#define NUM_DIR_KEYPADS 25
+	struct DirectionalKeypad dirKeypads[NUM_DIR_KEYPADS];
+	for (int dirIndex = 0; dirIndex < NUM_DIR_KEYPADS; dirIndex++)
+	{
+		initDirectionKeypad(&dirKeypads[dirIndex]);
+	}
 
-	struct DirectionalKeypad dirKeypad1;
-	initDirectionKeypad(&dirKeypad1);
+	struct HashTable* cacheTable = malloc(sizeof(struct HashTable));
+	initHashTable(cacheTable);
 
 	FILE* filePointer = fopen("puzzle.txt", "r");
 
-	int totalComplexity = 0;
+	long long totalComplexity = 0;
 
 #define INPUT_SIZE 4096
 	char input[INPUT_SIZE];
 	while (fgets(input, INPUT_SIZE, filePointer))
 	{
 		clearVector(&inputVector);
-		clearVector(&moveVector);
 
 		size_t length = strlen(input);
 		if (input[length - 1] == '\n')
@@ -331,62 +461,34 @@ void main()
 		}
 		for (int charIndex = 0; charIndex < (int)length; charIndex++)
 		{
-			if (isdigit(input[charIndex]))
-			{
-				addVector(&inputVector, input[charIndex] - '0');
-			}
-			else
-			{
-				addVector(&inputVector, input[charIndex]);
-			}
+			addVector(&inputVector, input[charIndex]);
 		}
 
 		// get the numeric code
 		int numericCode = atoi(input);
 
-		//printf("%dA\n", numericCode);
+		long long numMoves = 0;
 
 		// determine our moves
 		for (int inputIndex = 0; inputIndex < inputVector.count; inputIndex++)
 		{
+			int numPadMoves = 0;
+			int moveList[MAX_SINGLE_MOVES];
+			int initialKeySpot = numKeypad.keys[numKeypad.current];
 			// first figure out what our moves need to be for the numeric keypad
-			numericKeypad(&numKeypad, inputVector.data[inputIndex], &moveVector);
+			numericKeypad(&numKeypad, inputVector.data[inputIndex], &numPadMoves, moveList);
+
+			// we can process these one move at a time
+			for (int moveIndex = 0; moveIndex < numPadMoves; moveIndex++)
+			{
+				directionalKeypad(dirKeypads, initialKeySpot, moveList[moveIndex], NUM_DIR_KEYPADS - 1, cacheTable, &numMoves);
+			}
 		}
-
-		/*
-		for (int moveIndex = 0; moveIndex < moveVector.count; moveIndex++)
-		{
-			printf("%c", moveVector.data[moveIndex]);
-		}
-		printf("\n");
-		*/
-
-		// now convert that into a direction keypad
-		directionalKeypad(&dirKeypad0, &moveVector);
-
-		/*
-		for (int moveIndex = 0; moveIndex < moveVector.count; moveIndex++)
-		{
-			printf("%c", moveVector.data[moveIndex]);
-		}
-		printf("\n");
-		*/
-
-		// and again
-		directionalKeypad(&dirKeypad1, &moveVector);
-
-		/*
-		for (int moveIndex = 0; moveIndex < moveVector.count; moveIndex++)
-		{
-			printf("%c", moveVector.data[moveIndex]);
-		}
-		printf("\n");
-		*/
 
 		// and determine the complexity
-		int complexity = numericCode * moveVector.count;
+		long long complexity = numericCode * numMoves;
 		totalComplexity += complexity;
 	}
 
-	printf("%d\n", totalComplexity);
+	printf("%lld\n", totalComplexity);
 }
