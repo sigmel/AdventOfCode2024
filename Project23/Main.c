@@ -238,6 +238,82 @@ struct Vector* hasPatternHashTable(struct HashTable* hashTable, const char* str)
 	return NULL;
 }
 
+#define NUM_GROUPS 256
+struct ComputerGroup
+{
+	char computerName[3];
+	int numGroups;
+	struct Vector group[NUM_GROUPS]; // will contain the names of the computers with no separators
+};
+
+#define MAX_COMPUTERS 1024
+
+void initComputerGroup(struct ComputerGroup* group, char* name)
+{
+	group->computerName[0] = name[0];
+	group->computerName[1] = name[1];
+	group->computerName[2] = 0;
+	group->numGroups = 0;
+}
+
+int canAddComputerToGroup(struct Vector* group, char* name, struct HashTable* connectionTable)
+{
+	// need to make sure that this can connect to all other computers to add
+	for (int computerIndex = 0; computerIndex < group->count; computerIndex += 2)
+	{
+		char c0[3];
+		c0[0] = group->data[computerIndex];
+		c0[1] = group->data[computerIndex + 1];
+		c0[2] = 0;
+		struct Vector* c0Connections = hasPatternHashTable(connectionTable, c0);
+		if (strstr(c0Connections->data, name) == NULL)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+void addComputerToComputerGroup(struct ComputerGroup* group, char* name, struct HashTable* connectionTable)
+{
+	assert(group->numGroups < NUM_GROUPS);
+	for (int groupIndex = 0; groupIndex < group->numGroups; groupIndex++)
+	{
+		if (canAddComputerToGroup(&group->group[groupIndex], name, connectionTable))
+		{
+			addVector(&group->group[groupIndex], name[0]);
+			addVector(&group->group[groupIndex], name[1]);
+		}
+	}
+
+	// will add each entry to its own group since we can't predict what the groups will be ahead of time
+	initVector(&group->group[group->numGroups]);
+	addVector(&group->group[group->numGroups], name[0]);
+	addVector(&group->group[group->numGroups], name[1]);
+	group->numGroups++;
+}
+
+void alphaSortComputerNames(char* computerNames, int numNames)
+{
+	// just bubble sort these, they will be few in number
+	for (int i0 = 0; i0 < (numNames - 1) * 3; i0 += 3)
+	{
+		for (int i1 = i0 + 3; i1 < numNames * 3; i1 += 3)
+		{
+			if (strcmp(&computerNames[i0], &computerNames[i1]) > 0)
+			{
+				char temp[2];
+				temp[0] = computerNames[i0];
+				temp[1] = computerNames[i0 + 1];
+				computerNames[i0] = computerNames[i1];
+				computerNames[i0 + 1] = computerNames[i1 + 1];
+				computerNames[i1] = temp[0];
+				computerNames[i1 + 1] = temp[1];
+			}
+		}
+	}
+}
+
 // we'll store all the connections between computers in a hash table
 // the value will be a char vector of all the computers it can connect to
 // I'm hoping that there isn't input where it is the same item but reversed since I'm not checking for that
@@ -270,8 +346,10 @@ void main()
 	}
 
 	// now find all the groups
-	struct HashSet* connectionGroups = malloc(sizeof(struct HashSet));
-	initHashSet(connectionGroups);
+	// this will go through each computer, so it is definitely doing redundant work,
+	// but I'm hoping it isn't bad enough that I have to optimize it
+	int numComputers = 0;
+	struct ComputerGroup* connectionGroups = malloc(sizeof(struct ComputerGroup) * MAX_COMPUTERS);
 
 	for (int tableIndex = 0; tableIndex < NUM_HASHES_TABLE; tableIndex++)
 	{
@@ -283,112 +361,72 @@ void main()
 				break;
 			}
 
-			// see if we're connected to at least two other computers
+			assert(numComputers < MAX_COMPUTERS);
+			initComputerGroup(&connectionGroups[numComputers], connectionTable->buckets[tableIndex].pattern[bucketIndex]);
+
+			// now make any eligible groups
 			char* computerName = connectionTable->buckets[tableIndex].pattern[bucketIndex];
 			struct Vector* computerVector = &connectionTable->buckets[tableIndex].value[bucketIndex];
-			if (computerVector->count > 6)
+			for (int c0Index = 0; c0Index < computerVector->count - 3; c0Index += 3)
 			{
-				// now see if at least two of these are connected to each other
-				for (int c0Index = 0; c0Index < computerVector->count - 3; c0Index += 3)
-				{
-					char c0[3];
-					c0[0] = computerVector->data[c0Index];
-					c0[1] = computerVector->data[c0Index + 1];
-					c0[2] = 0;
-					if (strcmp(computerName, c0) == 0)
-					{
-						continue; // don't want to check against ourselves
-					}
-					struct Vector* c0Connections = hasPatternHashTable(connectionTable, c0);
+				char c0[3];
+				c0[0] = computerVector->data[c0Index];
+				c0[1] = computerVector->data[c0Index + 1];
+				c0[2] = 0;
 
-					for (int c1Index = c0Index + 3; c1Index < computerVector->count; c1Index += 3)
-					{
-						char c1[3];
-						c1[0] = computerVector->data[c1Index];
-						c1[1] = computerVector->data[c1Index + 1];
-						c1[2] = 0;
-						if (strcmp(computerName, c1) == 0)
-						{
-							continue; // don't want to check against ourselves
-						}
-						if (strstr(c0Connections->data, c1) != NULL)
-						{
-							if (computerName[0] == 't' || c0[0] == 't' || computerName[0] == 't') // only consider this if at least one computer starts with a 't'
-							{
-								char key[9];
+				addComputerToComputerGroup(&connectionGroups[numComputers], c0, connectionTable);
+			}
+			numComputers++;
+		}
+	}
 
-								// alpha sort and compute our triad
-								// (this is really gross code, but I don't want to implement a bunch of string functions for this)
-								int cc0 = strcmp(computerName, c0);
-								int cc1 = strcmp(computerName, c1);
-								int c0c1 = strcmp(c0, c1);
-								if (cc0 < 0 && cc1 < 0)
-								{
-									key[0] = computerName[0], key[1] = computerName[1], key[2] = ',';
-									if (c0c1 < 0)
-									{
-										key[3] = c0[0], key[4] = c0[1], key[5] = ',';
-										key[6] = c1[0], key[7] = c1[1], key[8] = 0;
-									}
-									else
-									{
-										key[3] = c1[0], key[4] = c1[1], key[5] = ',';
-										key[6] = c0[0], key[7] = c0[1], key[8] = 0;
-									}
-								}
-								else if (cc0 > 0 && cc1 < 0)
-								{
-									key[0] = c0[0], key[1] = c0[1], key[2] = ',';
-									key[3] = computerName[0], key[4] = computerName[1], key[5] = ',';
-									key[6] = c1[0], key[7] = c1[1], key[8] = 0;
-								}
-								else if (cc0 < 0 && cc1 > 0)
-								{
-									key[0] = c1[0], key[1] = c1[1], key[2] = ',';
-									key[3] = computerName[0], key[4] = computerName[1], key[5] = ',';
-									key[6] = c0[0], key[7] = c0[1], key[8] = 0;
-								}
-								else if (cc0 > 0 && cc1 > 0)
-								{
-									if (c0c1 < 0)
-									{
-										key[0] = c0[0], key[1] = c0[1], key[2] = ',';
-										key[3] = c1[0], key[4] = c1[1], key[5] = ',';
-									}
-									else
-									{
-										key[0] = c1[0], key[1] = c1[1], key[2] = ',';
-										key[3] = c0[0], key[4] = c0[1], key[5] = ',';
-									}
-									key[6] = computerName[0], key[7] = computerName[1], key[8] = 0;
-								}
-
-								if (!hasValueHashSet(connectionGroups, key))
-								{
-									addHashSet(connectionGroups, key);
-								}
-							}
-						}
-					}
-				}
+	// find the largest group
+	int largestNum = 0;
+	char* largestName = NULL;
+	struct Vector* largest = NULL;
+	for (int computerIndex = 0; computerIndex < numComputers; computerIndex++)
+	{
+		struct ComputerGroup* group = &connectionGroups[computerIndex];
+		for (int groupIndex = 0; groupIndex < group->numGroups; groupIndex++)
+		{
+			struct Vector* groupVector = &group->group[groupIndex];
+			if (groupVector->count > largestNum)
+			{
+				largestNum = groupVector->count;
+				largestName = group->computerName;
+				largest = groupVector;
 			}
 		}
 	}
+
+	// now format it correctly
+	char computerNames[MAX_COMPUTERS * 3];
+	computerNames[0] = largestName[0];
+	computerNames[1] = largestName[1];
+	computerNames[2] = 0;
+	int nameIndex = 3;
+	for (int computerIndex = 0; computerIndex < largest->count; computerIndex += 2)
+	{
+		computerNames[nameIndex] = largest->data[computerIndex];
+		computerNames[nameIndex + 1] = largest->data[computerIndex + 1];
+		computerNames[nameIndex + 2] = 0;
+		nameIndex += 3;
+	}
+	alphaSortComputerNames(computerNames, (largestNum / 2) + 1);
 
 	// print out all triads
-	int numberTriads = 0;
-	for (int hashIndex = 0; hashIndex < NUM_HASHES_SET; hashIndex++)
+	assert(nameIndex < 256);
+	char key[256] = { 0 };
+	for (int charIndex = 0; charIndex < nameIndex - 1; charIndex++)
 	{
-		for (int bucketIndex = 0; bucketIndex < NUM_HASHES_BUCKET; bucketIndex++)
+		if (computerNames[charIndex] == 0)
 		{
-			if (connectionGroups->buckets[hashIndex].value[bucketIndex][0] == 0)
-			{
-				break;
-			}
-			numberTriads++;
-			printf("%s\n", connectionGroups->buckets[hashIndex].value[bucketIndex]);
+			key[charIndex] = ',';
+		}
+		else
+		{
+			key[charIndex] = computerNames[charIndex];
 		}
 	}
-
-	printf("%d\n", numberTriads);
+	printf("%s\n", key);
 }
