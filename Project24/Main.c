@@ -105,6 +105,187 @@ void initGate(struct Gate* gate, char* name0, char* name1, char* operation, char
 	strcpy(gate->output, output);
 }
 
+struct Gate* findGateByOutput(struct Gate* gates, int numGates, const char* output)
+{
+	for (int gateIndex = 0; gateIndex < numGates; gateIndex++)
+	{
+		if (strcmp(gates[gateIndex].output, output) == 0)
+		{
+			return &gates[gateIndex];
+		}
+	}
+
+	return NULL;
+}
+
+void findGatesByInput(struct Gate* gates, int numGates, const char* input, struct Gate** inputGates, int* numInputGates, int maxInputGates)
+{
+	for (int gateIndex = 0; gateIndex < numGates; gateIndex++)
+	{
+		if (strcmp(gates[gateIndex].name0, input) == 0 ||
+			strcmp(gates[gateIndex].name1, input) == 0)
+		{
+			assert(*numInputGates < maxInputGates);
+			inputGates[*numInputGates] = &gates[gateIndex];
+			(*numInputGates)++;
+		}
+	}
+}
+
+void buildGateGraphByOutput(struct Gate* gates, int numGates, const char* output, struct Gate* graphGates, int* numGraphGates)
+{
+	struct Gate* findGate = findGateByOutput(gates, numGates, output);
+	assert(findGate != NULL);
+
+	// make sure we haven't added this yet
+	if (findGateByOutput(graphGates, *numGraphGates, output) == NULL)
+	{
+		initGate(&graphGates[*numGraphGates], findGate->name0, findGate->name1, findGate->operation, findGate->output);
+		(*numGraphGates)++;
+	}
+
+	// if we have two inputs, then this is the end of the graph in this direction
+	if (findGate->name0[0] != 'x' && findGate->name0[0] != 'y')
+	{
+		buildGateGraphByOutput(gates, numGates, findGate->name0, graphGates, numGraphGates);
+	}
+	if (findGate->name1[0] != 'x' && findGate->name1[0] != 'y')
+	{
+		buildGateGraphByOutput(gates, numGates, findGate->name1, graphGates, numGraphGates);
+	}
+}
+
+int computeGates(struct Gate* gates, int numGates, struct HashTable* registerTable)
+{
+	// go through and compute all the initialGates to find all the register values
+	// this will simply loop through everything and try to compute any gate that hasn't been computed yet
+	// it's pretty inefficient, but there aren't enough initialGates to really care
+	int waiting = 1;
+	int detectLoop = 0;
+	while (waiting && !detectLoop)
+	{
+		detectLoop = 1; // need to make sure we make some progress, otherwise we got into a loop
+		waiting = 0;
+		for (int gateIndex = 0; gateIndex < numGates; gateIndex++)
+		{
+			struct Gate* gate = &gates[gateIndex];
+			if (!gate->computed)
+			{
+				int* valueIn0 = hasPatternHashTable(registerTable, gate->name0);
+				int* valueIn1 = hasPatternHashTable(registerTable, gate->name1);
+				int* valueOut = hasPatternHashTable(registerTable, gate->output);
+				assert(valueIn0 != NULL && valueIn1 != NULL && valueOut != NULL);
+
+				// see if we can compute this yet
+				if (*valueIn0 != -1 && *valueIn1 != -1)
+				{
+					if (strcmp(gate->operation, "AND") == 0)
+					{
+						*valueOut = *valueIn0 && *valueIn1;
+					}
+					else if (strcmp(gate->operation, "OR") == 0)
+					{
+						*valueOut = *valueIn0 || *valueIn1;
+					}
+					else if (strcmp(gate->operation, "XOR") == 0)
+					{
+						*valueOut = *valueIn0 ^ *valueIn1;
+					}
+
+					gate->computed = 1;
+					detectLoop = 0;
+				}
+				else
+				{
+					waiting = 1;
+				}
+			}
+		}
+	}
+
+	return !detectLoop;
+}
+
+void initInputRegisters(struct HashTable* registerTable, long long number, int numRegisters, char registerChar)
+{
+	for (int registerIndex = 0; registerIndex < numRegisters; registerIndex++)
+	{
+		int bit = (number & (1LL << registerIndex)) >> registerIndex;
+
+		char registerName[4];
+		sprintf(registerName, "%c%02d", registerChar, registerIndex);
+		int* value = hasPatternHashTable(registerTable, registerName);
+		assert(value != NULL);
+		*value = bit;
+	}
+}
+
+long long findOutput(struct HashTable* registerTable, int numOutputBits)
+{
+	// now find our secret number
+	long long output = 0;
+	for (int outputIndex = 0; outputIndex < numOutputBits; outputIndex++)
+	{
+		char outputRegister[4];
+		sprintf(outputRegister, "z%02d", outputIndex);
+		int* outputValue = hasPatternHashTable(registerTable, outputRegister);
+		assert(outputValue != NULL);
+		if (outputValue == NULL || (*outputValue != 0 && *outputValue != 1)) // verify that we have a valid result
+		{
+			//return -1;
+			*outputValue = 0;
+		}
+		output |= ((long long)(*outputValue)) << outputIndex; // set the specified bit to the value
+	}
+	return output;
+}
+
+int verifyGraphCorrectness(struct Gate* gates, int numGates, const struct HashTable* registerTable, struct HashTable* verifyTable, int bitIndex)
+{
+	int verified = 1;
+	struct Gate* verifyGates = malloc(sizeof(struct Gate) * numGates);
+	{
+		memcpy(verifyGates, gates, sizeof(struct Gate) * numGates);
+		long long testBit = 1LL << (bitIndex - 1);
+		memcpy(verifyTable, registerTable, sizeof(struct HashTable));
+
+		initInputRegisters(verifyTable, testBit, bitIndex, 'x');
+		initInputRegisters(verifyTable, testBit, bitIndex, 'y');
+
+		int validResult = computeGates(verifyGates, numGates, verifyTable);
+		long long verifyOutput = validResult ? findOutput(verifyTable, bitIndex + 1) : -1;
+		if (!validResult || verifyOutput != testBit + testBit)
+		{
+			verified = 0;
+		}
+	}
+	free(verifyGates);
+	return verified;
+}
+
+void swapStrings(char* s0, char* s1)
+{
+	char temp[4];
+	strcpy(temp, s0);
+	strcpy(s0, s1);
+	strcpy(s1, temp);
+}
+
+void alphaSortStrings(char** strings, int numStrings)
+{
+	// just bubble sort these, they will be few in number
+	for (int i0 = 0; i0 < numStrings; i0++)
+	{
+		for (int i1 = i0 + 1; i1 < numStrings; i1++)
+		{
+			if (strcmp(strings[i0], strings[i1]) > 0)
+			{
+				swapStrings(strings[i0], strings[i1]);
+			}
+		}
+	}
+}
+
 void main()
 {
 	FILE* filePointer = fopen("puzzle.txt", "r");
@@ -113,11 +294,14 @@ void main()
 	initHashTable(registerTable);
 
 #define MAX_GATES 256
-	struct Gate gates[MAX_GATES];
+	struct Gate* initialGates = malloc(sizeof(struct Gate) * MAX_GATES);
 	int numGates = 0;
 
 	// we want to keep track of the number of final output registers so we can construct our number at the end
 	int numFinalOutputRegisters = 0;
+
+	int numXInputRegisters = 0; // just verifying range
+	int numYInputRegisters = 0;
 
 #define INPUT_SIZE 4096
 	char input[INPUT_SIZE];
@@ -141,7 +325,10 @@ void main()
 
 			// all initial values should be defining the register
 			int value = atoi(&input[advIndex]);
-			addHashTable(registerTable, name0, value);
+			addHashTable(registerTable, name0, /*value*/0); // set to 0 since we are fixing this so will provide our own inputs
+
+			if (name0[0] == 'x') { numXInputRegisters++; }
+			if (name0[0] == 'y') { numYInputRegisters++; }
 		}
 		else
 		{
@@ -158,7 +345,9 @@ void main()
 			nameIndex = 0;
 			while (isalnum(input[advIndex])) { output[nameIndex] = input[advIndex]; nameIndex++; advIndex++; }
 
-			initGate(&gates[numGates], name0, name1, operation, output);
+			assert(output[0] != 'x' && output[0] != 'y');
+
+			initGate(&initialGates[numGates], name0, name1, operation, output);
 			numGates++;
 
 			// add any new registers
@@ -182,58 +371,142 @@ void main()
 			}
 		}
 	}
+	assert(numXInputRegisters == numYInputRegisters && numXInputRegisters + 1 == numFinalOutputRegisters);
 
-	// go through and compute all the gates to find all the register values
-	// this will simply loop through everything and try to compute any gate that hasn't been computed yet
-	// it's pretty inefficient, but there aren't enough gates to really care
-	int waiting = 1;
-	while (waiting)
+#define MAX_SWAPPED 8
+	char* swappedOuputPairNames[MAX_SWAPPED] = { 0 };
+	for (int stringIndex = 0; stringIndex < MAX_SWAPPED; stringIndex++)
 	{
-		waiting = 0;
-		for (int gateIndex = 0; gateIndex < numGates; gateIndex++)
+		swappedOuputPairNames[stringIndex] = malloc(sizeof(char) * 4);
+	}
+	int numSwapped = 0;
+
+	// if we are building an adder, we don't want XOR on any operations that don't involve input/output pins
+	// so let's find those (not 100% sure on why this is, but XOR in the middle causes problems)
+	for (int gateIndex = 0; gateIndex < numGates; gateIndex++)
+	{
+		struct Gate* gate = &initialGates[gateIndex];
+		if (strcmp(gate->operation, "XOR") == 0 &&
+			gate->name0[0] != 'x' && gate->name0[0] != 'y' &&
+			gate->name1[0] != 'x' && gate->name1[1] != 'y' &&
+			gate->output[0] != 'z')
 		{
-			struct Gate* gate = &gates[gateIndex];
-			if (!gate->computed)
+			strcpy(swappedOuputPairNames[numSwapped], gate->output);
+			numSwapped++;
+		}
+	}
+
+	// to fix these, we'll need to find the output they were supposed to go to
+	int numInitialSwapped = numSwapped;
+	int foundPair[MAX_SWAPPED] = { 0 };
+
+	// if we are building an adder, then we'll need z00 to somehow map back to x00 and y00,
+	// and so on up to the last output bit, which we can use to try and narrow down the problematic areas
+	// we can technically get away with only testing the carry bit by making a few assumptions (that at least work for this puzzle)
+	struct HashTable* verifyTable = malloc(sizeof(struct HashTable));
+	int testSwapIndex = 0;
+	struct Gate* testSwapGate0 = NULL;
+	struct Gate* testSwapGate1 = NULL;
+	int badBits[MAX_GATES] = { 0 };
+	int testInputSwap = 0;
+	for (int bitIndex = 1; bitIndex < numFinalOutputRegisters; bitIndex++)
+	{
+		struct Gate verifyGates[MAX_GATES];
+		int numVerifyGates = 0;
+
+		char outputRegister[4];
+		sprintf(outputRegister, "z%02d", bitIndex);
+		buildGateGraphByOutput(initialGates, numGates, outputRegister, verifyGates, &numVerifyGates);
+
+		// see if this is correct
+		int verified = verifyGraphCorrectness(verifyGates, numVerifyGates, registerTable, verifyTable, bitIndex);
+		if (verified)
+		{
+			// keep any working swaps
+			if (testSwapGate0 != NULL && testSwapGate1 != NULL)
 			{
-				int* valueIn0 = hasPatternHashTable(registerTable, gate->name0);
-				int* valueIn1 = hasPatternHashTable(registerTable, gate->name1);
-				int* valueOut = hasPatternHashTable(registerTable, gate->output);
-				assert(valueIn0 != NULL && valueIn1 != NULL && valueOut != NULL);
-				
-				// see if we can compute this yet
-				if (*valueIn0 != -1 && *valueIn1 != -1)
+				if (!testInputSwap)
 				{
-					if (strcmp(gate->operation, "AND") == 0)
-					{
-						*valueOut = *valueIn0 && *valueIn1;
-					}
-					else if (strcmp(gate->operation, "OR") == 0)
-					{
-						*valueOut = *valueIn0 || *valueIn1;
-					}
-					else if (strcmp(gate->operation, "XOR") == 0)
-					{
-						*valueOut = *valueIn0 ^ *valueIn1;
-					}
+					foundPair[testSwapIndex] = 1;
 				}
 				else
 				{
-					waiting = 1;
+					strcpy(swappedOuputPairNames[numSwapped], testSwapGate0->output);
+					numSwapped++;
+					strcpy(swappedOuputPairNames[numSwapped], testSwapGate1->output);
+					numSwapped++;
+				}
+				testSwapGate0 = NULL;
+				testSwapGate1 = NULL;
+				testSwapIndex = 0;
+				testInputSwap = 0;
+			}
+		}
+		else
+		{
+			// see if swapping with any of our previously bad gates work
+			if (testSwapGate0 != NULL && testSwapGate1 != NULL)
+			{
+				// this didn't work, so change it back
+				swapStrings(testSwapGate0->output, testSwapGate1->output);
+				numSwapped--;
+				testSwapIndex++;
+			}
+
+			while (foundPair[testSwapIndex] && testSwapIndex < numInitialSwapped) { testSwapIndex++; }
+
+			if (testSwapIndex < numInitialSwapped)
+			{
+				// our later bit was bad, so it's something in the carry logic, so let's try swapping the output of that
+				char outputRegister[4];
+				sprintf(outputRegister, "z%02d", bitIndex);
+				testSwapGate0 = findGateByOutput(initialGates, numGates, outputRegister);
+				testSwapGate1 = findGateByOutput(initialGates, numGates, swappedOuputPairNames[testSwapIndex]);
+
+				strcpy(swappedOuputPairNames[numSwapped], testSwapGate0->output);
+				numSwapped++;
+				swapStrings(testSwapGate0->output, testSwapGate1->output); // test with swap
+				bitIndex--; // decrement this to try again
+			}
+			else
+			{
+				testSwapGate0 = NULL;
+				testSwapGate1 = NULL;
+				testSwapIndex = 0;
+				if (!testInputSwap)
+				{
+					// it's possible this is an issue with the prior bit, so let's find those inputs and swap the outputs
+					char inputRegister[4];
+					sprintf(inputRegister, "x%02d", bitIndex - 1);
+					struct Gate* inputGates[8];
+					int numInputGates = 0;
+					findGatesByInput(initialGates, numGates, inputRegister, inputGates, &numInputGates, 8);
+					assert(numInputGates == 2); // should only have two of these
+					testSwapGate0 = inputGates[0];
+					testSwapGate1 = inputGates[1];
+					swapStrings(testSwapGate0->output, testSwapGate1->output);
+
+					testInputSwap = 1;
+					bitIndex--;
 				}
 			}
 		}
 	}
 
-	// now find our secret number
-	assert(numFinalOutputRegisters < 63);
-	long long output = 0;
-	for (int outputIndex = 0; outputIndex < numFinalOutputRegisters; outputIndex++)
+	alphaSortStrings(swappedOuputPairNames, numSwapped);
+
+	int outputIndex = 0;
+	for (int swapIndex = 0; swapIndex < numSwapped; swapIndex++)
 	{
-		char outputRegister[4];
-		sprintf(outputRegister, "z%02d", outputIndex);
-		int* outputValue = hasPatternHashTable(registerTable, outputRegister);
-		assert(outputValue != NULL);
-		output |= ((long long)(*outputValue)) << outputIndex; // set the specified bit to the value
+		if (outputIndex > 0)
+		{
+			input[outputIndex] = ',';
+			outputIndex++;
+		}
+		strcpy(&input[outputIndex], swappedOuputPairNames[swapIndex]);
+		size_t length = strlen(swappedOuputPairNames[swapIndex]);
+		outputIndex += (int)length;
 	}
-	printf("%lld\n", output);
+
+	printf("%s\n", input);
 }
